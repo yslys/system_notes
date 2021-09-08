@@ -1,2 +1,1 @@
-# paper_notes
-This repository contains papers in the field of system
+This repository serves for paper notes I take.
