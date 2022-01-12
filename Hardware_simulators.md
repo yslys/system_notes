@@ -24,7 +24,7 @@ What is a trace?
 + A trace is the functionally correct sequence of instructions and/or addresses that a benchmark program produces.
 
 What can we do with the traces?
-These traces can be used as inputs to other simulation tools — so called (specialized) trace-driven simulators.
++ These traces can be used as inputs to other simulation tools — so called (specialized) trace-driven simulators.
 
 Example functional simulators: SimpleScalar’s sim-safe and sim-fast.
   
