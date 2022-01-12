@@ -94,3 +94,59 @@ Narayanasamy et al. - a technique that automatically captures the side effects o
 While this facilitates comparing design alternatives, it also comes with its pitfall.
 
 ### 3. Full system simulation
+User-level simulation is sufficiently accurate for workloads that spend little time executing system-level code. However, for database servers, web servers, email servers, etc., these workloads spend a lot of time executing system-level code -> require full-system simulation. 
+
+Also, the proliferation of multicore hardware -> multi-threaded workload -> performance is affected by OS scheduling decisions -> require full-system simulation.
+
+**Full-system simulation**: 
++ Simulating an entire computer system such that complete software stacks can run on the simulator. 
++ The software stack includes: application software + operating systems, so that the simulation includes I/O and OS activity next
+to processor and memory activity. In other words, the user of the full-system simulator is given the illusion to run on real hardware. 
++ E.g. SimOS, Virtutech’s SimICs, AMD’s SimNow, M5, Bochs, QEMU, Embra, and IBM’s Mambo.
+
+Comparison between **full-system simulator** and **user-level functional simulator**:
++ The functionality is the same — both provide a trace of dynamically executed instructions.
++ The only difference: functional simulation simulates user-level code instructions only, whereas fullsystem simulation simulates both user-level and system-level code. 
++ Full-system simulation achieves greater coverage.
+
+### 4. Specialized trace-driven simulation
+Specialized trace-driven simulation:
++ Input: instruction traces + address traces (user-level + system level instructions)
++ Output: simulation of specific components (cache or branch predictor) of a target architecture in isolation.
+
+E.g. cache simulation - Dinero IV.
+
++ Development time and evaluation time are both good.
++ Coverage is limited because only certain components of a processor are modeled. 
++ While the accuracy in terms of miss rate is quite good, overall processor performance accuracy is only roughly correlated with these miss rates because many other factors come into play. 
+
+Nevertheless, specialized trace-driven simulation provides a way to easily evaluate specific aspects of a processor.
+
+### 5. Trace-driven simulation
+**Full trace-driven simulation** == **trace-driven simulation**. 
+
+It takes program's instruction traces and address traces, and feeds the full benchmark trace into a detailed microarchitecture timing simulator.
+
+It separates the functional simulation from the timing simulation. This is often useful because the functional simulation needs to be performed only once, while the detailed timing simulation is performed many times when evaluating different microarchitectures. This separation reduces evaluation time somewhat. 
+
++ Development time: long; Simulation run time: long. 
++ Accuracy: good; Coverage: good.
+
+Disadvantage:
++ 1. Need to store the trace files, which may be huge for contemporary benchmarks and computer programs with very long run times. 
+  + Solution: trace compression can be used to address this concern.
++ 2. For modern superscalar processors, they predict branches and execute many instructions speculatively — speculatively executed instructions along mispredicted paths are later nullified. These nullified instructions do not show up in a trace file generated via functional simulation, although they may affect cache and/or predictor contents. Hence, trace-driven simulation will not accurately model the effects along mispredicted paths.
+
+
+### 6. Execution-driven simulation
+In contrast to trace-driven simulation, execution-driven simulation combines functional with timing simulation. 
+
+By doing so, it eliminates the disadvantages of trace-driven simulation: trace files do not
+need to be stored, speculatively executed instructions get simulated accurately, and the inter-thread
+ordering in multi-threaded workloads is modeled accurately. For these reasons, execution-driven
+simulation has become the de-facto simulation approach. 
+
+E.g. SimpleScalar, RSIM, Asim, M5, GEMS, Flexus, and PTLSim.
+
+Although execution-driven simulation achieves higher accuracy than trace-driven simulation, it
+comes at the cost of increased development time and evaluation time.
