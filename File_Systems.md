@@ -359,32 +359,175 @@ In the example on Slide 73 - 79: when we create a snapshot /usr/snap.noon, the l
 After that, we do a make clean, to remove lots of files. Then, we check the size of the snapshot again, the logical size does not change, but the # of physical disk blocks are much larger - 97920 bytes. This is because when we removing those files by make clean, lots of the corresponding disk blocks to be removed are marked "not yet copied" in the snapshot inode. Hence, we need to make lots of copies so that we could recover to what it was before make clean.
 
 
-### Lecture 4 - background FSCK
++ Where is the snapshot source code?
+    + ```/usr/src/sys/ufs/ffs/ffs_snapshot.c```
+    + It is a kernel service.
+    + Under the ```usr/src/sys/ufs``` directory, there are two directories: ffs and ufs. ffs contains files regarding to **inode**, and services (like snapshot) related to inode will be placed under ffs directory. ufs contains the files for **directory (dirent)** and other related services.
+
+### Lecture 4 - background FSCK (FS consistency check), and soft update
+When a FS crashed, we can recover it by taking the snapshot. But if the total time to recover (by merely using snapshot) takes quite a long time, we want to find a way to reduce it. That is why **background FSCK** is introduced so that while FS is recovering, users are allowed to use the FS immediately. Hence, **background FSCK** is to shorten the time for the FS to be available after a crash.
+
+When FS crashed, and you want to use the machine again, after you turn the machine on, before user is able to use the FS, a snapshot is required to be taken. Then, background FSCK starts, while user is able to use FS at the same time.
+
+
+#### FSCK (Note: NOT background FSCK)
++ Inconsistency problem:
+    + In order to achieve higher performance in disk accesses, OS maintains a buffer cache so that disk blocks can be cached to memory, or even be cached to cache (one level higher than memory). In other words, there might be several copies of the same disk block: 
+        + 1) on disk itself
+        + 2) in memory
+        + 3) in cache
+    + So when user modifies a disk block, it first reveals in the disk block in cache, then the disk block in memory, but there must be inconsistency between the disk block in memory and on disk.
+    + Such inconsistency problem will persist until we flush such disk block to disk.
+    + Not only the disk block that contains data will cause inconsistency problems, but also those corresponding data structures like inode block, directory block:
+        + inode contains a timestamp to be modified.
+        + Some other correlated data structures needs to be modified as well.
+    + Hence, whenever user tries to modify a single file, all the corresponding disk blocks (e.g. data block, inode block, directory block) in memory will be placed in the buffer cache, and all those blocks will be different from the disk blocks on disk.
+
++ How could we maintain FS consistency?
+    + The core idea: **the ordering of updates from buffer cache to disk is critical**.
+        + e.g. If the directory block is written back before inode and the system crashes, the directory structure will be inconsistent.
+    + 1) Less efficient approach, and it still does not 100% guarantee consistency after crash: 
+        + Use unbuffered I/O when writing inodes or pointer blocks.
+        + Use buffered I/O for other writes and force sync every 30 seconds.
+    + 2) Detect and Fix - what most FS does:
+        + Detect the inconsistency.
+        + Fix them according to the rules.
+        + Running FSCK.
+
+Below describes how **FSCK detects the inconsistency** in blocks and directory entries:
+
++ Two ways of consistency checks: block consistency and file consistency
+    + Block consistency check (what FSCK does - really expensive, but **NOT background FSCK**)
+        + There are two core data structures:
+            + **Block-in-use table**: an array of integers
+                + This table is only constructed during FSCK - a large amount of time.
+                + 1:block is in-use, 0:block is not in-use.
+
+            + **Free block bitmap**: FS needs to know: on hard disk which block is free to use
+                + This bitmap is maintained all the time.
+                + 1:free, 0:not free.
+        + How to construct the **Block-in-use table**?
+            + For a disk block, if there is an inode, in which there is a pointer block that stores the pointer to that particular disk block, then it means such disk block is in use.
+            + Hence, we need to examine every pointer block in every single inode. 
+                + If for a single disk block, if there is one a pointer block pointing to it, then such disk block will be incremented by 1. 
+                + If none of the pointer blocks in all inodes points to a disk block, then such disk block should be marked as not in-use, or free (0).
+            + **Ideally, if the FS is consistent, then the values in Block-in-use array should be 0 or 1, since there should be at most 1 pointer block in an inode pointing to an in-used block. There should not be another pointer pointing to the same block.** 
+        + If FS is consistent, then the Block-in-use table should be equal to the reverse of the Free block bitmap (0->1, 1->0), for instance:
+            + 0 1 1 1 0 0 0 1 0 (Block-in-use table)
+            + 1 0 0 0 1 1 1 0 1 (Free block bitmap)
+        + If FS is inconsistent, for instance, the last three bits:
+            + 0 1 1 1 0 0 0 1 0 **0** **1** **2** (Block-in-use table)
+            + 1 0 0 0 1 1 1 0 1 **0** **1** **0**(Free block bitmap)
+        + Let's consider the above three pairs of bits ```(block-in-use table, free block bitmap)``` for inconsistency one by one:
+            + (0, 0)
+                + There is no pointer in inode pointing to that disk block but that disk block is not free.
+                + This is not that danger since no inode is pointing to that disk block.
+            + (1, 1): 
+                + there is a pointer in inode pointing to that disk block but that disk block is free.
+                + This is very danger, since that means there is an inode using that disk block, but from the OS's perspective, it will regard such disk block as free. Hence, that disk block might be assigned to other files later which invalidates the previous inode.
+                + **Soft update**: prevents this case from happening but allows (0, 0) to happen.
+            + (2, 0): there are two pointers in inode pointing to that disk block and that disk block is not free.
+
+    + File consistency check (directory structure consistency check)
+        + In each inode, it has ```di_nlink``` field to indicate how many hard links there are for this inode, or how many directory entries having the same inode number.
+        + In this case, we are going to build another table similar to Block-in-use table, which is also an integer array, with each element of the array being the **#of directory entries pointing to this inode**.
+            + Starting from the root of the FS (inode #2), go through every ```dirent``` structure to find each corresponding inode number, and increment by 1. So if there are n directory entries having the same inode number x, then for the corresponding position x in the array, it will have a value of n.
+            + We refer to each element in this array as **D**.
+        + We also need another table that stores **```di_nlink``` field of each inode**.
+            + Traverse all the inodes, and put ```di_nlink``` field in the array.
+            + We refer to each element in this array as **L**.
+        + Comparison between **D** and **L**:
+            + D == L: files are consistent.
+            + D < L: inconsistent.
+                + This is less dangerous - just wasting some disk space.
+                + Consider the following simpler case:
+                    + di_nlink == 2, but only 1 dirent pointing to this inode.
+                    + When the dirent removes the file, di_nlink field in the inode will be 1. So all the disk blocks corresponding to this inode will still be there, and will not be marked as free in Free block bitmap until "Garbage Collection" is executed. 
+            + D > L: inconsistent.
+                + This is very dangerous.
+                + Consider the following simpler case:
+                    + di_nlink == 1, but 2 dirents pointing to this inode.
+                    + If one of the two dirents tries to remove the file corresponding to this inode, then the di_nlink field will be 0, indicating no dirent is associated with this inode number, hence this inode is marked as free, which might be overwritten by other applications. But the dirent that did not remove the file will still consider that the file is still there, so when it tries to access the file, it may not be able to access the correct file as it was.
+
++ Metadata operations
+    + What is metadata?
+        + The data blocks are not the metadata. The inode, Free block bitmap, Free inode bitmap, directory entry, etc. are all metadata.
+    + Metadata operations modify the structure of the FS.
+        + Creating, deleting or renaming files, directories or special files.
+    + Metadata is actually maintaining the integrity of the FS.
+        + **If you lost all the metadata, you might lose the whole FS.**
+        + It is ok to lose some of the data blocks since we can use metadata to recover the FS to what it was when taking a snapshot.
+
+Hence, metadata is extremely important and we do not want to lose it. We need a way to guarantee the integrity of the metadata.
+
++ How to guarantee the integrity of the metadata?
+    + FFS uses synchronous writes for metadata, i.e. every time metadata is modified, it must be written back to the disk immediately. 
+    + These writes will be blocking, i.e. nothing else can be done while the metadata is being written to the disk.
+    + But using synchronous writes will largely impact the performance. The cost of metadata updates will be high.
+    + For data blocks, the writes might be cached and flushed later.
+
+From the above, we know that blocking writes of the metadata will strongly impact the performance, can we find out a way that we use less blocking writes (synchronous writes) but still maintains metadata integrity? Yes, by using **Soft Updates**.
+
+#### Snapshot, Soft update, and background FSCK
+Before diving into Soft update, we first need to figure out the relationship between the three.
+
++ Snapshot: gets a consistent global view of the whole FS
++ Background FSCK: garbage collect the lost ones
+    + Background FSCK is - take a snapshot of FS, then run background FSCK against the snapshot whenever OS schedules it to run.
+    + Foreground FSCK is slow.
++ Soft update: prevents Block inconsisty with (1, 1), and D > L
+    + This makes sure that FS is safe to use while background FSCK is running.
+    + Although this does not prevent garbage generated, garbage collection will be handled by background FSCK.
+
+#### Soft Updates
+Soft updates allows us to perform "dedalyed write" on metadata to the disk. But for the cached metadata, we need to make sure to **follow a particular order of writing those cached metadata back to disk**.
+
+On deleting a file:
+
++ When deleting a file, we are deleting two things in order to let deletion complete.
+    + The copy of disk block in memory
+    + The disk block in disk
+
++ When deleting a file, what metadata needs to be modified (i.e. write to disk)?
+    + ```dirent``` - the directory entry corresponding to the file removed should be deleted.
+    + ```inode``` - decrement di_nlink.
+    + Free block bitmap - for the free disk block.
+    + Free inode bitmap - for the free inode.
++ Suppose the above 4 data structures are located on 4 different disk blocks,
+    + In memory, there will be 4 disk blocks (pages) that are dirty.
+    + Then needs to write the dirty blocks to disk.
+
++ What is the order of the 4 writes so that in between the 4 writes, no matter when a crash happens we can guarantee that 1) no block inconsisty with (1, 1) and no D > L?
+    + If I write the inode block to disk before writing the Free inode bitmap, and system crashes, then the corresponding part of the Free inode bitmap will be still 0 (not free), this is acceptable since garbage collection in background FSCK will be able to handle it.
+    + If I write the inode block to disk before writing the directory block, and system crashes, then in the directory block, it will consider that the file still exists. However, the inode block has already been modified with ```di_nlink``` being 0. Although free inode bitmap has not updated, background FSCK will be able to notice it and mark such inode to be free. Then it will be very danger since if later such inode has been assigned to another file, the directory entry will never be able to get the old file.
+    + The correct order is as follows:
+        + 1) Directory block
+        + 2) inode block
+        + 3) 4) free block bit map, and free inode bitmap
+
+On creating a file, the order is going to be reversed. The goal is still to prevent 1) Block inconsisty with (1, 1), and 2) D > L
++ 1) Write the inode bitmap
++ 2) Write the inode block
++ 3) Write the directory block
+
+On renaming a file (deleting and creating), both the directory block and inode block will be modified. The order is:
++ 1) increment the inode di_nlink by 1 (+1)
++ 2) add a new name in dirent
++ 3) remove the old name in dirent
++ 4) decrement the inode di_nlink by 1 (-1)
+
+If the file is in the same directory, then only modifying the dirent name would suffice, but if in a different directory, then needs to follow the above 4 steps.
+
+**Rules for soft update**:
++ For creating a file: never point to a structure before it has been initialized. So the data blocks must be written to disk first, before we can start writing the inode to disk. Similarly, we must first write the inode to disk, then we can write the corresponding directory entry to disk.
++ For deleting a file: never reuse a resource before nullifying all previous pointers to it. So when we delete a file, we first need to write the directory entry to disk first, then update the inode structure in disk.
++ For renaming (deleting and creating) a file: never reset the old pointer to a live resource before the new pointer has been set.
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+### Lecture 5 - 
+https://web.stanford.edu/~ouster/cgi-bin/cs140-winter13/lecture.php?topic=recovery
 
 
 
