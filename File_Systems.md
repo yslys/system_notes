@@ -575,6 +575,10 @@ Dependency relationships:
 
 
 
+Midterm will cover lecture 1 to 5? Not 6?
+
+
+
 
 
 How is rollback performed? nullify the value in memory and write to disk? or it is done in disk only?
