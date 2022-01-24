@@ -529,8 +529,56 @@ If the file is in the same directory, then only modifying the dirent name would 
 ### Lecture 5 - 
 https://web.stanford.edu/~ouster/cgi-bin/cs140-winter13/lecture.php?topic=recovery
 
+Consistency conditions:
++ L >= D
+    + To avoid D > L
+    + Deletion: first dirent then inode (order of writing to disk)
+    + Creation: first inode then dirent
++ (block_in_use_table\[B\], free_block_bitmap\[B\]) cannot be (1, 1)
+    + (1, 0), (0, 1) are normal
+    + (0, 0) is acceptable - waste some space, needs garbage collection
+    + Deletion: (1, 0) -> (0, 1) - i.e. (1, 0) ~ (0, 0) ~ (0, 1)
+    + Creation: (0, 1) -> (1, 0) - i.e. (0, 1) ~ (0, 0) ~ (1, 0)
+
+Dependency relationships:
++ Problem setup: two blocks dirty blocks (dir block and inode block), we delete file "foo" and create a new file "bar".
+    + Inside dir block: foo, and "NEW bar"
+    + Inside inode block: inode-foo, and inode-NEW-bar
+    + The two blocks are now in memory, with modified values (already deleted foo and inode-foo, created NEW bar and inode-NEW-bar), but not yet written to disk.
+
++ What is the order to write to disk?
+    + For deleting foo, the order should be: dirent block then inode block.
+    + For creating bar, the order should be: inode block then dirent block.
+    + So there will be a conflict since there is a circular dependency.
+
++ **How to solve the circular dependency issue**?
+    + Whenever there is a loop, we need to break that loop. That is called "roll back".
+    + Consider the example on Slide 144:
+    + 1st row: where circular dependency occurs
+        + inode #4 and dirent A are the newly created in memory.
+        + inode #5 and dirent B have been deleted in memory.
+    + In order to solve the circular dependency, we need to waste one more disk block write. What we need to do is to roll back one of the two operations (creation and deletion) that causes the conflict. Suppose we choose to roll back the creation.
+    + 2nd row: roll back creation (only deletion is done)
+        + We write the directory block to disk, but roll back the creation of dirent A (i.e. we did not write dirent A to disk).
+        + So we only performed the deletion, but did not perform the creation - that is why on the right of the 2nd row, the original dirent B has been removed, while dirent A is not written there.
+    + Now, the circular dependency has been solved, and we need to do the creation. For creation, we need to first write the inode block, then the directory block, that is why in row 3, we are writing the inode block.
+    + Finally, on the 4th row, we write the directory block after we have written inode block in row 3.
+
++ In the above example, we roll back creation. Can we roll back deletion?
+    + We always roll back creation. We do not roll back deletion.
+    + Reason?
+        + Before we roll back, we need to consider what we have in memory. Roll back creation (row 2) means we roll back the creation of the dirent A in disk. Since before creation, that dirent is NULL, there will be no impact on the disk since we still have the copy in memory.
+        + However, if we roll back deletion, 
+        
+         nullify the dirent of creation in directory block, and then write to disk. After that, we can still retrieve the original dirent of creation from somewhere else
 
 
+
+
+
+
+How is rollback performed? nullify the value in memory and write to disk? or it is done in disk only?
+If nullifying the value in memory and write to disk, then for creation, roll back will also cause the data in memory to be lost and we cannot recover if the data is not in cache. The only way is to make a copy somewhere else.
 
 
 Questions:
