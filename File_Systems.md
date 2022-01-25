@@ -148,6 +148,7 @@ Below is the structure of the ```ufs2_dinode```:
         + When user opens a file (say, it's a movie with partially downloaded using bittorrent) and seek to a particular offset, OS will handle the rest. If for that offset, the file has not been downloaded, what OS will do is - instead of returning an error to the user, it will redirect that offset to the bittorrent client, and then bittorrent client will receive such request, and put such request at a higher priority to grab that piece, and send it back to OS. However, there will be some delay for the user to be able to watch that offset of the movie.
 + ```u_int64_t di_size;``` compared with ```u_int64_t di_blocks;```?
     + Can be equal, or greater than, or less than.
+    + di_size is mostly less than di_block*blocksize
 
 + A nice property of the inode:
     + It is possible for us to use an inode represent a logical file.
@@ -316,7 +317,9 @@ struct dirent {
     + 2) For the disk blocks (say, n) that are "not copied", go through free blocks bitmap to find n free blocks, and make a copy of the n disk blocks to be modified.
     + 3) After making a copy, the direct disk blocks (```di_db[NDADDR]```) or indirect disk blocks (```di_ib[NIADDR]```) in the (snapshot) inode structure will NO longer store "not used" or "not yet copied", but store the pointer to the newly copied disk block.
     + **Followup question**: now, the pointers within snapshot inode contain pointers to the copied disk blocks. If The user tries to modify again, what will happen? Does it force FS to write to disk block? Or FS creates another new snapshot which treats the newer old file as the old file?
+        + It will notice that the snapshot inode has the corresponding pointer being not yet copied, and will not write to that inode pointer. So everytime we want to recover to a snapshot inode, we can only recover to what it was when we first took the snapshot.
     + **Followup question**: What if two snapshots choosing the same disk block to store the copy?
+        + That is absolutely possible, and in that way, we can save a lot of space.
 
 
 + Since we are using exactly 1 inode to store the snapshot, will the number of disk blocks exceed the max pointers an inode could handle?
@@ -559,23 +562,42 @@ Dependency relationships:
         + inode #5 and dirent B have been deleted in memory.
     + In order to solve the circular dependency, we need to waste one more disk block write. What we need to do is to roll back one of the two operations (creation and deletion) that causes the conflict. Suppose we choose to roll back the creation.
     + 2nd row: roll back creation (only deletion is done)
-        + We write the directory block to disk, but roll back the creation of dirent A (i.e. we did not write dirent A to disk).
-        + So we only performed the deletion, but did not perform the creation - that is why on the right of the 2nd row, the original dirent B has been removed, while dirent A is not written there.
-    + Now, the circular dependency has been solved, and we need to do the creation. For creation, we need to first write the inode block, then the directory block, that is why in row 3, we are writing the inode block.
-    + Finally, on the 4th row, we write the directory block after we have written inode block in row 3.
+        + Since we are doing deletion only, we first need to write directory block to disk. But before that, we need to make a copy of the directory block to store the dirent A.
+        + We then write the directory block to disk, with dirent A being empty.
+        + On the right of the 2nd row, the original dirent B has been removed, while dirent A is not written there.
+    + Now, the circular dependency has been solved, and we need to do the creation. For creation, we need to first write the inode block, then the directory block, that is why in row 3, we are writing the inode block. Besides, for the deletion that we done previously, we have already written the directory block, so it is also the time to write the inode block. Hence, in this single write (inode block), we write both the inode we created and the inode we deleted.
+    + Finally, on the 4th row, we need to copy what is was in dirent A to the directory block to be written, and then we write the directory block to disk, so that dirent A is written to disk.
 
 + In the above example, we roll back creation. Can we roll back deletion?
     + We always roll back creation. We do not roll back deletion.
     + Reason?
-        + Before we roll back, we need to consider what we have in memory. Roll back creation (row 2) means we roll back the creation of the dirent A in disk. Since before creation, that dirent is NULL, there will be no impact on the disk since we still have the copy in memory.
-        + However, if we roll back deletion, 
-        
-         nullify the dirent of creation in directory block, and then write to disk. After that, we can still retrieve the original dirent of creation from somewhere else
+        + Before we roll back, we need to consider what we have in memory. Roll back creation (row 2) means we roll back the creation of the dirent A in disk. Since before creation, the corresponding dirent in disk is NULL, we can safely overwrite that part with an empty dirent.
+        + However, if instead, we roll back deletion and do creation first, we first need to make a copy of inode #5, zero inode #5 in inode block, and then write only inode #4 to disk (overwrite the inode block in disk). However, that will also overwrite the inode #5 in disk. So we must go to disk first, make a copy of what inode #5 was, and then fill that old value to the inode block, then we can safely overwrite the inode block in disk. That requires another disk read.
+
+
+#### Journaling
+Core idea: **write-ahead logging**
+
++ Write-ahead logging ensures that the log is written to disk before any blocks containing data modified by the corresponding operations.
++ Either all or nothing: either all the dirty blocks are written to the hard disk, or none of them are written to the hard disk.
++ No need to worry about circular dependency, since all the corresponding blocks will be written at once.
++ In journaling, first write the dirty blocks to the log. Such log is a specific area in disk. Then, after those dirty blocks have been written to the log, the file system will then write the log (i.e. the dirty blocks) to where they should be written to.
++ When writing to the log, system crashes, then after rebooting the system, FS will notice that the log is half-completed, then nullify those blocks in log.
++ After completing the log, system crashes, then after reboothing, FS will notice that the log is completed, and write to disk from the beginning of the log.
++ Every block needs to be written twice.
 
 
 
++ Comparison between journaling and soft update in various application scenarios?
+    + Journaling has a simpler design than soft updates, easier to maintain and develop.
+    + If the application you are working on is important, and you do not want to lose all the data, then soft update would be better.
+    + One advantage of soft update is "when you can start using the FS after a crash".
+        + This is critical to real-time system, critical mission system.
+        + Soft update: after the snapshot has been taken can user starts to use the FS. You can start using FS even without taking a snapshot (if we do not care about the wasted space caused by crash).
+        + Journaling: if system crashes after the log has been completed, but not yet written to the corresponding parts of disk, then we need to wait until log has been fully written.
 
-Midterm will cover lecture 1 to 5? Not 6?
+
+
 
 
 
@@ -599,8 +621,8 @@ Questions:
 + Is the following saying correct?
 > Note: a snapshot already exists. When user modifies a file in user space, it is not necessarily the disk block will be modified. Only when the FS actually tries to write to the disk, snapshot occurs. Hence, the following steps are done before actually modifying the disk blocks.
 
-+ **Followup question**: now, the pointers within snapshot inode contain pointers to the copied disk blocks. If The user tries to modify again, what will happen? Does it force FS to write to disk block? Or FS creates another new snapshot which treats the newer old file as the old file?
 
+What will happen if no extra disk blocks are available?
 + **Followup question**: What if two snapshots choosing the same disk block to store the copy? I remember in the example where we do make clean, all the snapshots should copy the removed files. Hence, I think the answer is probably - every snapshot should be updated sequentially, or when accessing the free block bitmap, needs to acquire a mutex. What if while updating the snapshots, some of the snapshots cannot find free disk blocks? That means those particular snapshots will no longer be able to recover to what it was when snapshots were taken.
 
 + Is the following answer to the question correct?
