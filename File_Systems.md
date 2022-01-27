@@ -529,7 +529,7 @@ If the file is in the same directory, then only modifying the dirent name would 
 
 
 
-### Lecture 5 - 
+### Lecture 5 - Circular Dependency in Soft Updates & Journaling
 https://web.stanford.edu/~ouster/cgi-bin/cs140-winter13/lecture.php?topic=recovery
 
 Consistency conditions:
@@ -597,10 +597,42 @@ Core idea: **write-ahead logging**
         + Journaling: if system crashes after the log has been completed, but not yet written to the corresponding parts of disk, then we need to wait until log has been fully written.
 
 
+### Lecture 6 - vnode & virtual file system
++ The layers of file system in Linux (ordered from top to bottom)
+    + VFS: vnode
+    + UFS: dirent
+    + FFS: inode
 
++ vnode is a layer of abstraction in file system, right above the UFS layer (dirent).
++ vnode provides flexibility that we can introduce new services. Hence, a lot of OS services today are implemented in the vnode layer.
++ Examples: 
+    + virus scanning service
+        + Using vnode
+        + Adding a virtualization layer for checking whether there is some kind of malicious signature in the files.
+    + crypto file system
+        + Want to encrypt the files and store to hard disk.
+        + Encryption and decryption are implemented in vnode.
 
-
-
++ ```sys/proc.h```
+    + This header file contains the data structure to capture all the processes or threads in kernel.
+    + We will look into ```struct proc``` - for process
+    + 
+    ```
+        struct proc {
+            LIST_ENTRY(proc) p_list;        /* (d) List of all processes. */
+            TAILQ_HEAD(, ksegrp) p_ksegrps; /* (c)(kg_ksegrp) All KSEGs. */
+            TAILQ_HEAD(, thread) p_threads; /* (j)(td_plist) Threads. (shortcut) */
+            TAILQ_HEAD(, thread) p_suspended; /* (td_runq) Suspended threads. */
+            struct ucred    *p_ucred;       /* (c) Process owner's identity. */
+            struct filedesc *p_fd;          /* (b) Ptr to open files structure. */
+            struct filedesc_to_leader *p_fdtol; /* (b) Ptr to tracking node */
+                                            /* Accumulated stats for all threads? */
+            struct pstats   *p_stats;       /* (b) Accounting/statistics (CPU). */
+            struct plimit   *p_limit;       /* (c) Process limits. */
+            struct vm_object *p_unused1;    /* (a) Former upages object */
+            struct sigacts  *p_sigacts;     /* (x) Signal actions, state (CPU). */
+    ```
+    + 
 
 
 How is rollback performed? nullify the value in memory and write to disk? or it is done in disk only?
