@@ -613,9 +613,11 @@ Core idea: **write-ahead logging**
         + Want to encrypt the files and store to hard disk.
         + Encryption and decryption are implemented in vnode.
 
+Before diving into vnode, we first need to know where such structure is defined. The first structure we will see is ```struct proc```, the structure of a process.
+
 + ```sys/proc.h```
     + This header file contains the data structure to capture all the processes or threads in kernel.
-    + We will look into ```struct proc``` - for process
+    + We will look into ```struct proc``` - a process
     + 
     ```
         struct proc {
@@ -632,7 +634,111 @@ Core idea: **write-ahead logging**
             struct vm_object *p_unused1;    /* (a) Former upages object */
             struct sigacts  *p_sigacts;     /* (x) Signal actions, state (CPU). */
     ```
+    + ```TAILQ_HEAD(, ksegrp) p_ksegrps```: kse group - kernel schedulable entity group
+        + A process can contain more than 1 threads.
+        + When a thread is mapped to a hypervisor or hardware, it is assigned a KSE - kernel schedulable entity.
+    + ```struct filedesc *p_fd```: pointer to open files structure
+        + Represents all the files that current process has access to.
+
+Now, let's take a look at the ```struct filedesc``` - the structure for file descriptor.
+
++ ```sys/filedesc.h```
     + 
+    ```
+        50 struct filedesc {
+        51     struct  file **fd_ofiles; /* file structures for open files */
+        52     char    *fd_ofileflags;         /* per-process open file flags */
+        53     struct  vnode *fd_cdir;         /* current directory */
+        54     struct  vnode *fd_rdir;         /* root directory */
+        55     struct  vnode *fd_jdir;         /* jail root directory */
+        56     int     fd_nfiles;              /* number of open files allocated */
+        57     NDSLOTTYPE *fd_map;             /* bitmap of free fds */
+        ...
+    ```
+    + ```struct file **fd_ofiles;```: this is the list of pointers to open files owned by this file descriptor structure.
+
+Next, we need to go to check ```struct file```, which represents an open file.
+
++ ```sys/file.h```
+    + 
+    ```
+        106 struct file {
+        107     LIST_ENTRY(file) f_list;/* (fl) list of active files */
+        108     short   f_type;         /* descriptor type */
+        109     void    *f_data;        /* file descriptor specific data */
+        110     u_int   f_flag;         /* see fcntl.h */
+        111     struct mtx      *f_mtxp;        /* mutex to protect data */
+        112     struct fileops *f_ops;  /* File operations */
+        113     struct  ucred *f_cred;  /* credentials associated with descriptor */
+        114     int     f_count;        /* (f) reference count */
+        115     struct vnode *f_vnode;   /* NULL or applicable vnode */
+        116 
+        117     /* DFLAG_SEEKABLE specific fields */
+        118     off_t   f_offset;
+        ...
+    ```
+    + ```off_t f_offset;```: the offset of the start of the current file.
+    + ```struct vnode *f_vnode;```: this is the vnode we will be talking about.
+
+
+```struct proc``` -> ```struct filedesc``` -> ```struct file``` -> ```struct vnode```.
++ ```sys/vnode.h```
+    + 
+    ```
+        107 struct vnode {
+        108     struct  mtx v_interlock;                /* lock for "i" things */
+        109     u_long  v_iflag;                        /* i vnode flags (see below) */
+        110     int     v_usecount;                     /* i ref count of users */
+        111     long    v_numoutput;                    /* i writes in progress */
+        112     struct thread *v_vxthread;              /* i thread owning VXLOCK */
+        113     int     v_holdcnt;                      /* i page & buffer references */
+        114     struct  buflists v_cleanblkhd;
+        115     struct  buf      *v_cleanblkroot;
+        116     int              v_cleanbufcnt;
+        117     struct  buflists v_dirtyblkhd;
+        118     struct  buf      *v_dirtyblkroot;
+        119     int     v_dirtybufcnt;
+        120     u_long  v_vflag;                        /* v vnode flags */
+        121     int     v_writecount;                   /* v ref count of writers */
+        122     struct  vm_object *v_object;
+        123     daddr_t v_lastw;                        /* v last write (write cluster) */
+        124     daddr_t v_cstart;                       /* v start block of cluster */
+        125     daddr_t v_lasta;                        /* v last allocation (cluster) */
+        126     int     v_clen;                         /* v length of current cluster */
+        ...
+    ```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 How is rollback performed? nullify the value in memory and write to disk? or it is done in disk only?
