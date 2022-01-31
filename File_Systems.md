@@ -677,7 +677,7 @@ Next, we need to go to check ```struct file```, which represents an open file.
         118     off_t   f_offset;
         ...
     ```
-    + ```off_t f_offset;```: the offset of the start of the current file.
+    + ```off_t f_offset;```: the offset of the start of the current file (```fseek()```).
     + ```struct vnode *f_vnode;```: this is the vnode we will be talking about.
 
 
@@ -707,8 +707,13 @@ Next, we need to go to check ```struct file```, which represents an open file.
         126     int     v_clen;                         /* v length of current cluster */
         ...
     ```
+    + Clean buffer & Dirty buffer: line 114 - 119
+        + Clean buffer: the ```buf``` structure that reads in but not modified - the list of blocks accessed by ```read()```
+        + Dirty buffer: the list of blocks modified.
 
-
++ Figure on slide 180
+    + For each process, there is a structure ```vm_map``` (virtual memory map) associated to it, which represents every virtual memory piece to allocate for this current process.
+    + For ```vm_map```, it contains a linked list of ```struct vm_map_entry```.
 
 
 
