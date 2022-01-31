@@ -15,3 +15,7 @@
 + [QEMU QOM analysis](https://github.com/wangzhou/hexo_blog_source/blob/918ec27434e9903fcd42a9342968c885ad1bfe28/source/_posts/qemu-qom%E5%88%86%E6%9E%90.md)
 
 + [How to instantiate and use a dma driver linux module](https://stackoverflow.com/questions/17913679/how-to-instantiate-and-use-a-dma-driver-linux-module)
+
++ [What is Kubernetes?](https://kubernetes.io/docs/concepts/overview/what-is-kubernetes/)
+
++ [Cache-aware load balancing of data center applications](http://www.vldb.org/pvldb/vol12/p709-archer.pdf)
