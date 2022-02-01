@@ -19,3 +19,9 @@
 + [What is Kubernetes?](https://kubernetes.io/docs/concepts/overview/what-is-kubernetes/)
 
 + [Cache-aware load balancing of data center applications](http://www.vldb.org/pvldb/vol12/p709-archer.pdf)
+
++ [How to write shared libraries](https://www.cs.dartmouth.edu/~sergey/cs258/ABI/UlrichDrepper-How-To-Write-Shared-Libraries.pdf)
+
++ [Executable and Linking Format (ELF)](https://refspecs.linuxfoundation.org/elf/elf.pdf)
+
++ [Elf x86_64 adding function](https://reverseengineering.stackexchange.com/questions/21910/elf-x86-64-adding-function/21948#21948)
