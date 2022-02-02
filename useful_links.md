@@ -25,3 +25,5 @@
 + [Executable and Linking Format (ELF)](https://refspecs.linuxfoundation.org/elf/elf.pdf)
 
 + [Elf x86_64 adding function](https://reverseengineering.stackexchange.com/questions/21910/elf-x86-64-adding-function/21948#21948)
+
++ ArchLinux and Gentoo
