@@ -27,3 +27,9 @@
 + [Elf x86_64 adding function](https://reverseengineering.stackexchange.com/questions/21910/elf-x86-64-adding-function/21948#21948)
 
 + ArchLinux and Gentoo
+
++ [GDB in RISCV](https://shakti.org.in/docs/RISC-V-GDB-tutorial.pdf)
+
++ [GEM5: Creating disk images](https://www.gem5.org/documentation/general_docs/fullsystem/disks)
+
+
