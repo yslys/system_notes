@@ -32,4 +32,5 @@
 
 + [GEM5: Creating disk images](https://www.gem5.org/documentation/general_docs/fullsystem/disks)
 
++ [iowrite32(), writel() and memory barriers taken apart](http://billauer.co.il/blog/2014/08/wmb-rmb-mmiomb-effects/)
 
