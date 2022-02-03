@@ -10,6 +10,9 @@
 
 + [Configuring virtio-blk and virtio-scsi Devices](https://www.qemu.org/2021/01/19/virtio-blk-scsi-configuration/)
 
++ [QEMU NIC](https://zhuanlan.zhihu.com/p/41258581)
+  + ```-net``` and ```-netdev``` option
+
 + [How SCSI (Small Computer System Interface) Works](https://computer.howstuffworks.com/scsi.htm)
 
 + [QEMU QOM analysis](https://github.com/wangzhou/hexo_blog_source/blob/918ec27434e9903fcd42a9342968c885ad1bfe28/source/_posts/qemu-qom%E5%88%86%E6%9E%90.md)
