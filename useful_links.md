@@ -1,4 +1,6 @@
-+ [Good papers to read!](https://read.seas.harvard.edu/cs161/2019/lectures/papers/)
++ [Good OS papers to read!](https://read.seas.harvard.edu/cs161/2019/lectures/papers/)
+
++ [Synthesis Lectures on Computer Architecture](https://www.morganclaypool.com/toc/cac/15/1)
 
 + [Ext2 3 4 File System](https://www.thegeekstuff.com/2011/05/ext2-ext3-ext4/)
   + Difference between Ext2, 3 and 4 file systems.
