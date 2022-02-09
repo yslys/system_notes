@@ -705,22 +705,92 @@ Next, we need to go to check ```struct file```, which represents an open file.
         124     daddr_t v_cstart;                       /* v start block of cluster */
         125     daddr_t v_lasta;                        /* v last allocation (cluster) */
         126     int     v_clen;                         /* v length of current cluster */
+        127     union {
+        128         struct mount    *vu_mountedhere;
+        129         struct socket   *vu_socket;
+        130         struct {
+        131             struct cdev     *vu_cdev;
+        132             SLIST_ENTRY(vnode) vu_specnext;
+        133         } vu_spec;
+        134         struct fifoinfo *vu_fifoinfo;
+        135     } v_un;
+        136     TAILQ_ENTRY(vnode) v_freelist;          /* f vnode freelist */
+        137     TAILQ_ENTRY(vnode) v_nmntvnodes;        /* m vnodes for mount point */
+        138     LIST_ENTRY(vnode) v_synclist;           /* S dirty vnode list */
+        139     enum    vtype v_type;
+        140     const char *v_tag;                      /* u type of underlying data */
+        141     void    *v_data;                        /* u private data for fs */
+        142     struct  lock v_lock;                    /* u used if fs don't have one */
+        143     struct  lock *v_vnlock;                 /* u pointer to vnode lock */
+        144     vop_t   **v_op;                         /* u vnode operations vector */
         ...
     ```
     + Clean buffer & Dirty buffer: line 114 - 119
         + Clean buffer: the ```buf``` structure that reads in but not modified - the list of blocks accessed by ```read()```
         + Dirty buffer: the list of blocks modified.
+    + line 128: ```struct mount *vu_mountedhere;```
+        + ```$ df``` - 1st column: Filesystem, last column: Mounted on.
+        + ```$ mount``` similar. 
+        + The output entries represent the file systems (can be different disks, or partitions within a disk)
+        + Hard link: you cannot have a hard link across different file systems - must be on the same FS.
+        + Symbolic link: you can have symbolic links across different file systems.
+    + line 141: ```void *v_data;```
+        + This corresponds to vnode, which allows you to access the potentian low level of FS
+        + This is used with two macros: converting between in-memory inode and in-memory vnode. (They have a one-to-one correspondence)
+            + ```#define VTOI(vp) ((struct inode *)(vp)->v_data)```
+                + ```vp``` is a pointer to an in-memory vnode structure, ```(vp)->v_data``` is of type ```void*```. Hence, we are obtaining an in-mem inode pointer from this macro.
+            + ```#define ITOV(ip) ((ip)->i_vnode)```
+                + ```ip``` is a pointer to an in-memory inode structure, ```(ip)->i_vnode``` is of type ```struct vnode*``` in ```ufs/ufs/inode.h```([source](https://unix.superglobalmegacorp.com/BSD4.4/newsrc/ufs/ufs/inode.h.html#:~:text=struct%09vnode%20*i_vnode)). Hence, we are obtaining an in-mem vnode pointer from this macro.
 
-+ Figure on slide 180
+
+
++ Figure on slide 180 (Kernel level detail of vnode)
     + For each process, there is a structure ```vm_map``` (virtual memory map) associated to it, which represents every virtual memory piece to allocate for this current process.
     + For ```vm_map```, it contains a linked list of ```struct vm_map_entry```.
+    + ```struct vm_map_entry```: contains info related to kernel, heap, stack, etc. Need to look at the entries to decide where the memory is.
+        + Each ```struct vm_map_entry``` points to a ```shadow object```, ```shadow object``` points to ```vm_page```.
+    + Both ```struct vm_map_entry``` and ```shadow object``` can point to a ```vnode```.
+        + There might be multiple ```struct vm_map_entry```'s for storing (e.g.) the kernel files, or heap, or stack, but all of the vm_map_entry's of the same type point to one vnode.
+        
++ Different between vnode and inode
+    + For each ```mount```, it has its own inode list, and the most important data structure for each ```mount``` is vnode.
+    + Suppose 1M files in a mount, but only open 3 files, then there would be 3 vnodes; however, the number of inodes is 1M.
+    + inode is persistent (w/ or w/o opening files), but # of vnodes is number of open files.
+    + When you want to use a FS, you use a vnode to represent that FS as a directory. Then, in the subsequent accesses (like opening the files within a FS), more vnodes would be created and linked to the opened files.
+    + vnode contains a set of member functions that allow user to use to access the file.
+
+Vnode table entry:
+```
+                ------------------------
+ ------        |      File Type         |
+|      |        ------------------------
+| File |       | Pointers to functions  |
+| Table|  -->  |     for this file      |  -->  Disk Drive
+| Entry|        ------------------------
+|      |       |   inode information    |
+ ------        |(socket info for server)|         
+                ------------------------
+                   vnode table entry
+```
+
++ Why for each file we need the pointers to the functions for the file? In other words, why can't we have a more generic set of functions that handle all files?
+    + Because different files have different ways of access. vnode leverages the idea of polymorphism in OOP, which allows you to call the same function name, but does different things.
+
+File System:
+```
+ -----------        ---------      
+|  Process  |      |Open File|    
+| Descriptor|  ->  |  Entry  |  ->   vnode   ->     inode
+ -----------        ---------                   ufs/ufs/dinode.h (inode on disk)     
+sys/filedesc.h   sys/file.h       sys/vnode.h   ufs/ufs/inode.h  (inode in memory)
+```
+
++ What is the difference between inode on disk and inode in memory?
+    + When accessing a file, the first thing to do is to bring the inode from disk to memory.
+    + The inode brought into memory itself is just one field in the in-mem inode. So there is some extra info stored in the in-mem inode, including the pointer to vnode, and pointer to dirty buffer, etc.
 
 
-
-
-
-
-
+**VFS: the FS Switch**
 
 
 
