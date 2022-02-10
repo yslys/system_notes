@@ -790,15 +790,50 @@ sys/filedesc.h   sys/file.h       sys/vnode.h   ufs/ufs/inode.h  (inode in memor
     + The inode brought into memory itself is just one field in the in-mem inode. So there is some extra info stored in the in-mem inode, including the pointer to vnode, and pointer to dirty buffer, etc.
 
 
-**VFS: the FS Switch**
+#### **VFS (virtual FS): the FS Switch**
+Given multiple FS on a host machine, before VFS was introduced, it was hard to integrate various FS together, i.e. need to write different code for accessing different FS. Hence, when you want to install another FS, you need to modify Linux kernel first before you could start using the new FS.
 
+```
+                          User space
+--------------------------------------------------------------
+                syscall layer (file, uio, etc.)
+--------------------------------------------------------------
+network  |                   Virtual
+protocal |                 File System
+ stack   |----------------------------------------------------
+(TCP/IP) |  NFS  |  UFS  |  LFS  |  *FS  |  etc.  |  ...
+--------------------------------------------------------------
+                       device drivers
+```
 
+With VFS, it serves as an interface between syscall layer and the actual file systems. VFS consists of a bunch of vnode, with each vnode containing a bunch of function pointers corresponding to different accessing methods for different FS.
 
+Recall that in ```struct vnode``` it has a field - ```void *v_data;```.
+- If such vnode corresponds to UFS, then ```v_data``` will point to the inode.
+- If such vnode corresponds to NFS, then ```v_data``` will point to a socket.
+- etc.
 
++ vnode operations and attributes (slide 197)
+    + ```ufs/ufs/ufs_vnops.c
 
++ Network File System (NFS) (slide 201)
+    + Client side and Server side.
+    + Client side:
+        + Below the VFS layer, there is an NFS client (serves as a proxy) that connects to another server that contains a hard disk (inode).
+        + When user wants to mount a disk on another server, the user does not need to worry about whether that disk is local or remote.
+    + Server side: where the real disk locates
+        + Receives the request from the Client side's NFS client (the proxy)
+        + Then pass the request through the VFS layer, and then to the disk (inode).
 
++ Can we have multiple layers of vnode? Yes.
+    + Between VFS and the actual FS, can have another layer - FiST-produced file system.
+    + FiST: stackable File system
+    + No need to modify the kernel
+    + Only need to load another layer of VFS module into the kernel.
 
-
++ Example: anti-virus FS
+    + Adding a layer of VFS that scans the file/request before accessing the UFS layer on the bottom.
+    + ```read()``` -> ```antiVirusFS_read()``` (then send to another virus checking program. If no virus, then) -> ```ext2_read()```.
 
 
 
