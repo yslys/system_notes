@@ -1,5 +1,11 @@
 + [Good OS papers to read!](https://read.seas.harvard.edu/cs161/2019/lectures/papers/)
 
++ [A Case For Intelligent RAM](https://courses.engr.illinois.edu/cs533/sp2013/reading_list/8a.pdf)
+
++ [Multicore programming with transactional memory](https://web.stanford.edu/~kozyraki/publications/2006.unlocking_concurrency.queue.pdf)
+
++ [Factored Operating Systems (fos): The Case for a Scalable Operating System for Multicores](https://www.princeton.edu/~wentzlaf/documents/Wentzlaff.2009.OSR.fos.pdf)
+
 + [Synthesis Lectures on Computer Architecture](https://www.morganclaypool.com/toc/cac/15/1)
 
 + [Ext2 3 4 File System](https://www.thegeekstuff.com/2011/05/ext2-ext3-ext4/)
