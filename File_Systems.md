@@ -838,11 +838,134 @@ Recall that in ```struct vnode``` it has a field - ```void *v_data;```.
 
 
 ### Lecture 7 - Distributed FS
+When the host wants to mount a remote FS on another server, the remote FS must export the portion of the directory it allows the host to mount to host's FS. So the host can execute the following:
+```
+$ mount -t nfs server.yahoo.com:/export/usr /usr
+```
+Host mounts the remote FS to ```/usr``` (local) directory.
+
++ This provides the features - **Transparency and Location independence**
+    + Network **transparency**, in its most general sense, refers to the ability of a protocol to transmit data over the network in a manner which is transparent (invisible) to those using the applications that are using the protocol. In this way, users of a particular application may access remote resources in the same manner in which they would access their own local resources.
+    + **Transparency and Location independence** is similar.
+
++ Some other issues of Distributed FS:
+    + Reliability and Crash recovery
+    + Scalability and Efficiency
+        + The number of servers or clients needed to deal with
+        + There might be a large number of users trying to access the same file at the same time - bottleneck, and may cause the response time for a distributed FS to degrade.
+    + Correctness and Consistency
+        + Correctness: on-copy unix semantics - every modification to every byte of a file has to be immediately and permanently visible to every client. **But this is very hard in a distributed FS**
+    + Security and Safety
 
 
+#### NFS (SUN, 1985) - stateless
++ Brief intro:
+    + NFS is an application layer protocol
+        + NFS client can be implemented one layer below the virtual file system
+        + NFS client can also be implemented in user mode (above the kernel layer)
+    + Based on RPC (Remote Procedure Call) and XDR (Extended Data Representation, e.g. json)
+        + Difference between RPC and json RPC:
+            + RPC is using XDR to communicate with server (a more compact representation of the data, but less readable than json)
+    + Stateless - **Server maintains no state of the client, i.e. server does not need to maintain the info of what the user has done, and what the offset of the file that user used to read/write**.
+        + a READ on the server opens, seeks, reads, and closes
+        + a WRITE is similar, but the buffer is flushed to disk before closing
+    + Server crash: client continues to try until server reboots – no loss
+    + Client crashes: client must rebuild its own state – no effect on server
+
++ **Stateless vs Stateful** (Slide 19 20)
+    + Stateless (bottom figure): discussed above. The server is light-weight, and rely on the clinet to maintain the state of a file.
+        + When client opens a file, or seek to an offset, it will not be sent to the server. When client actually reads the file, such request will be sent to the server.
+    + Stateful (top figure): we want the server to maintain some info about a session corresponds to a particular client.
+        + When client opens the file, the request is sent to server; if the file is not too big, then a chunk of the file will be returned to the client. Then when client wants to read, or stat, then client can process locally.
+    + Scalability issue in Stateless design
+        + For a stateless design (as early NFS), it suffers from when tons of users trying to read the files, since each read is a request, and the server needs to handle all those requests, which challenged the CPU capacity and network capacity.
+
++ NFS operations
+    + Every operation is independent: server opens file for every operation
+    + File identified by handle -- no state information retained by server
+    + client maintains mount table, v-node, offset in file table etc.
+    + List of operations in version 2:
+        + NULL, GETATTR, SETATTR
+        + LOOKUP, READLINK, READ
+        + CREATE, WRITE, REMOVE, RENAME
+        + LINK, SYMLINK
+        + READIR, MKDIR, RMDIR
+        + STATFS (get file system attributes)
+
++ Why there's no open/close operations?
+    + The purpose of ```open``` is to keep a pointer (offset in the file) so that the following reads and writes know where to read/write. 
+    + Hence, the offset is stored in client side and the offset is sent with each subsequent reads/writes to the server.
+
++ File handle - an unique identifier for a file on the server side
+    + Why not use the absolute path?
+        + Because the files on the server side might change its location to another directory. Then the full path has to be changed. With fhandle, regardless where the file is, client is still able to access the file.
+    + How are fhandle assigned?
+        + fhandle is the inode number.
+
++ Mounting a remote NFS on the client side
+    + A vnode associated with the root of the mounted NFS would be created.
+    + A file handle associated with the root of the mounted NFS would be provided to the client.
+    + Subsequent vnodes would be created as client calls ```LOOKUP```. The vnodes are like a tree structure, representing the directory structure in the remote NFS.
+    + Client calls ```LOOKUP(dirfhandle, filename)``` -> Server returns a file handle -> Client calls ```read(fhandle, offset, count)``` -> Server returns the data.
 
 
+#### AFS (Andrew FS) - stateful
+When opening the file on server, cache the whole file (when the file is not that large) on the client side, then the subsequent operations are all performed locally, which does not involve network. When closing the file, the whole file is transfered back to the server.
 
++ **Callback - a notification service** in version 2 and 3
+    + 1) Client opens a file and gets a copy of the file.
+    + 2) Client modifies the file and closes the file to send the modified copy to server.
+    + 3) During the above time period (open, modify, writeback), if another client has modified the file and written back, then the server will inform the client that file has been modified and sent the newer copy to the client.
+    + 4) It is the client's responsibility to check the diff of the file, and either merge the file or do something else, and then write back.
+
++ optimistic concurrency control (in Callback in AFS)
+    + Lock: pessimistic - no two clients can access one same file at the same time.
+    + Optimistic: assume the probability that the race condition will happen rarely. Hence, no lock mechanism.
+    + This is based on the observation that at any time, both users trying to write to the same file is unlikely to happen.
+    + Validation phase: check if the modified file sent from a client has a conflict with the current file. No matter how many clinets opened the file, there will always be 1 callback corresponding to the file located on AFS. Whoever sends the modified copy back will have to check if the callback is still there - 
+        + if the callback is there, then no one has modified the file yet, then AFS will take that callback away, and safely update the file.
+        + if the callback is gone, then someone else has modified the file, so AFS will notify the user, and AFS will create a new callback (no need if someone else has already created one since last modification time), get the newer version of the file, make modifications, and write to AFS again.
+        + Question??
+            + if time0, user0 creates a callback0, time1, user1 opens the file again, will the callback0 be overwritten?
+
+
++ Fault Tolerance in AFS
+    + Client crashes
+        + check for callback tokens first, if there's a callback associated with the client, then the client knows that the modified file was not written to AFS.
+    + Server crashes (callback is gone)
+        + Client can request an open of the file, create a callback, then compare the file (returned by the server) and the file locally.
+
++ Atomic Commit protocols (1 client w/ multiple servers)
+    + One-phase commit protocol
+        + Atomic commit protocols are widely used in database and distributed systems where there are a bunch of transactions.
+        + In database scenario: 
+            + A transaction may consist of a number of individual transactions which carry out processes such as reading and writing to a database. When the transaction is completed all the individual transactions must have successfully carried out their tasks. 
+            + A one-phase commit protocol involves a coordinator periodically communicating with the servers that are carrying out each individual transaction in order to inform them whether to commit the transaction or abort it.
+        + In distributed system scenario: ([link](https://www.tutorialspoint.com/distributed_dbms/distributed_dbms_commit_protocols.htm))
+            + The client acts as a coordinator.
+            + A client may breaks a transaction into several small transactions over multiple servers.
+            + After each server has locally completed its transaction, it sends a "DONE" message to the client.
+            + The servers wait for "Commit" or "Abort" message from the client. This waiting time is called **window of vulnerability**.
+            + When the client receives "DONE" message from each server, it makes a decision to commit or abort. This is called the commit point. Then, the client sends this message to all the servers.
+            + On receiving this message, a server either commits or aborts (depending on what the client says) and then sends an acknowledgement message to the client.
+            + If one server notices the transaction fails (a deadlock or a crash on the server), such server does not have the right to abort the transaction - only the client can allow the server to abort the transaction.
+    + Two-phase commit protocol:
+        + In distributed system scenario:
+            + Core: commit if all servers say commit. Abort if any of the servers says abort.
+            + Phase 1: prepare phase
+                + After each server has locally completed its transaction, it sends a "DONE" message to the client. When the client has received "DONE" message from all servers, it sends a "Prepare" message to the servers.
+                + The servers vote on whether they still want to commit or not. If a server wants to commit, it sends a "Ready" message. If not, then sends a "Not Ready" message. This may happen when the server has conflicting concurrent transactions or there is a timeout.
+            + Phase 2: commit/abort phase
+                + If the client has received "Ready" message from all the servers −
+                    + The client sends a "Global Commit" message to the servers.
+                    + The servers apply the transaction and send a "Commit ACK" message to the client.
+                    + When the client receives "Commit ACK" message from all the servers, it considers the transaction as committed.
+                + If the client has received the first "Not Ready" message from any server −
+                    + The client sends a "Global Abort" message to the servers.
+                    + The servers abort the transaction and send a "Abort ACK" message to the client.
+                    + When the client receives "Abort ACK" message from all the servers, it considers the transaction as aborted.
+    + Timeout
+        + What if 
 
 
 
