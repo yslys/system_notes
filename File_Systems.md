@@ -909,6 +909,8 @@ Host mounts the remote FS to ```/usr``` (local) directory.
     + Client calls ```LOOKUP(dirfhandle, filename)``` -> Server returns a file handle -> Client calls ```read(fhandle, offset, count)``` -> Server returns the data.
 
 
+### Lecture 8 - Andrew File System & Atomic commit protocols
+
 #### AFS (Andrew FS) - stateful
 When opening the file on server, cache the whole file (when the file is not that large) on the client side, then the subsequent operations are all performed locally, which does not involve network. When closing the file, the whole file is transfered back to the server.
 
@@ -952,20 +954,179 @@ When opening the file on server, cache the whole file (when the file is not that
     + Two-phase commit protocol:
         + In distributed system scenario:
             + Core: commit if all servers say commit. Abort if any of the servers says abort.
+            + Client sends transactions to all servers, and let servers execute the transactions.
+            + Two-phase commit only starts when we are ready to commit the transaction. The client sends the commit request to the transaction coordinator.
             + Phase 1: prepare phase
-                + After each server has locally completed its transaction, it sends a "DONE" message to the client. When the client has received "DONE" message from all servers, it sends a "Prepare" message to the servers.
+                + The transaction coordinator sends a "Prepare" message to the servers.
+                + The servers (mostly databases) will have to write all the transactions to disk and checks any constraints to make sure the consistency is maintained. The servers also need to write an entry to their undo log and an entry to their redo log (in case they want to abort the transaction).
                 + The servers vote on whether they still want to commit or not. If a server wants to commit, it sends a "Ready" message. If not, then sends a "Not Ready" message. This may happen when the server has conflicting concurrent transactions or there is a timeout.
             + Phase 2: commit/abort phase
-                + If the client has received "Ready" message from all the servers −
-                    + The client sends a "Global Commit" message to the servers.
-                    + The servers apply the transaction and send a "Commit ACK" message to the client.
-                    + When the client receives "Commit ACK" message from all the servers, it considers the transaction as committed.
-                + If the client has received the first "Not Ready" message from any server −
-                    + The client sends a "Global Abort" message to the servers.
-                    + The servers abort the transaction and send a "Abort ACK" message to the client.
-                    + When the client receives "Abort ACK" message from all the servers, it considers the transaction as aborted.
-    + Timeout
-        + What if 
+                + If the coordinator has received "Ready" message from all the servers −
+                    + The coordinator sends a "Global Commit" message to the servers.
+                    + The servers apply the transaction and send a "Commit ACK" message to the coordinator, release all the locks.
+                    + When the coordinator receives "Commit ACK" message from all the servers, it considers the transaction as committed.
+                + If the coordinator has received the first "Not Ready" message from any server −
+                    + The coordinator sends a "Global Abort" message to the servers.
+                    + The servers abort the transaction and send a "Abort ACK" message to the coordinator, release all the locks.
+                    + When the coordinator receives "Abort ACK" message from all the servers, it considers the transaction as aborted.
+    + Crash: 
+        + If after coordinator has sent "Prepare" to the servers, some servers crash, then the coordinator will timeout and abort all transactions.
+        + What if the coordinator crashes?
+            + Solution 1: coordinator writes its decision to disk, so after it recovers, can check what decision was made.
+        + If coordinator crashes after sending the "Prepare", but before broadcasting the final decision, i.e. other nodes do not know how coordinator has decided, then all other nodes will get blocked until the coordinator reboots.
+            + Case 1: some servers have not received "Prepare" message, so cannot send "Ready" or "Not ready" to the coordinator, so the coordinator will never receive from all servers, so coordinator can just send Global abort.
+                + Those servers just abort.
+            + Case 2: not all servers have received Global commit/abort
+                + Those servers received can do either commit or abort; those servers have not received are in the WAIT stage, and after the timeout, can query other servers about whether they have done commit or abort - if they have committed, then it means the coordinator had sent a Global commit message to them, so the "not yet committed" server can do commit. Similarly for Global abort. 
+            + Case 3: all servers have received Global commit/abort
+                + No influence. The servers can just do commit/abort.
+            + **Case 4 (the weak spot for two-phase commit):** if the coordinator receives all "Ready" from all servers, and only sent Global commit to one of the servers, and failed to send it to the rest two servers. So the one success server will do commit and release the lock, while the two failed servers will be in WAIT state (they have not received whether to commit or abort from the coordinator). If right after the success server does commit, such server went down, then the two WAITing server remains in WAIT state since it does not know what the other server's state is (maybe that server was in WAIT state before crash, maybe that server has done commit (in this case) before crash), until either the coordinator or the crashed server come back. So need to wait for undetermined time.
+
+    + Three-phase commit protocol:
+        + Phase 1: prepare phase
+            + The transaction coordinator sends a "Prepare" message to the servers.
+            + The servers (mostly databases) will have to write all the transactions to disk and checks any constraints to make sure the consistency is maintained. The servers also need to write an entry to their undo log and an entry to their redo log (in case they want to abort the transaction).
+            + The servers vote on whether they still want to commit or not. If a server wants to commit, it sends a "Ready" message. If not, then sends a "Not Ready" message. This may happen when the server has conflicting concurrent transactions or there is a timeout.
+        + Phase 2: prepare to commit
+            + The coordinator broadcasts a "Pre prepare" message.
+            + The servers vote OK in response.
+        + Phase 3: commit/abort
+    
+    + Three-phase commit solves Case 4 of crash.
+        + If all servers are in WAIT state (all willing to commit), and have all received the Pre-Commit message from the coordinator, then they will response with an ACK to the coordinator. After coordinator receives all ACKs from all servers, coordinator will broadcast "doCommit" to all servers. If there are three servers in total:
+            + 2 of them receive "doCommit", then commit, and then crash.
+            + 1 of them doesn't receive "doCommit", then it remains in Pre-Commit stage.
+
+The three-phase commit protocol eliminates this problem by introducing the Prepared to commit state. If the coordinator fails before broadcasting preCommit messages, the cohort (group of servers) will unanimously agree that the operation was aborted. The coordinator will not send out a doCommit message until all cohort members have ACKed that they are Prepared to commit. This eliminates the possibility that any cohort member actually completed the transaction before all cohort members were aware of the decision to do so.
+
+The pre-commit phase introduced above helps the system to recover when a participant or both the coordinator and a participant failed during the commit phase. When the recovery coordinator takes over after the coordinator failed during a commit phase of two-phase commit, the new pre-commit comes handy as follows: On querying participants, if it learns that some nodes are in commit phase then it assumes that the previous coordinator before crashing has made the decision to commit. Hence it can shepherd the protocol to commit. Similarly, if a participant says that it had not received a PrepareToCommit message, then the new coordinator can assume that the previous coordinator failed even before it completed the PrepareToCommit phase. Hence it can safely assume that no participant has committed the changes, and hence safely abort the transaction.
+
+
+### Lecture 9 - Google FS
+
+#### Google FS
++ First generation (slide 51)
+    + Master: stores inode info, directory into
+    + multiple chunk servers: serves as disks
+
++ Write control and Data flow (slide 67)
+    + thin arrow: control flow, thick arrow: data flow.
+    + If writing to a chunk, needs also write two copies.
+    + **Diverge the network traffic by splitting control flow and data flow**:
+        + Control flow: the client communicates with Primary Replica
+        + Data flow: the client communicates with Secondary Replica A
+    + **Another important property:**
+        + If there are multiple updates to the same file, those updates should be consistently applied. In other words, the secondary replicas should be the same as the primary replica.
+    + Steps for write:
+        + Client asks master for all replicas.
+            + Client provides directory path and offset of the file to master.
+        + Master replies. Client caches.
+            + Master replies the corresponding file handle
+        + Client pre-pushes data to all replicas.
+            + This is based on "whichever is closer goes first" policy, regardless of whether the data is first pushed to the primary replica or not. Hence, if secondary replica B is closest, then it will receive the data first.
+            + In this way, it will make sure that all replicas receive the data as quickly as possible - that is the goal.
+        + After all replicas acknowledge, client sends write request to primary.
+            + Here is where control flow continues.
+            + Since the data pushed in consists of (very likely) > 1 mutations to the file, the primary needs to assign consecutive serial numbers to the mutations it receives (possibly from multiple clients so serialization is a must), then applies the mutation to its own local state in serial number order. 
+        + Primary forwards write request to all replicas.
+            + Each secondary replica applies mutations in the same serial number order assigned by the primary.
+        + Secondaries signal completion to the primary.
+        + Primary replies to client. Errors handled by retrying.
+            + Any errors encountered at any of the replicas are reported to the client. In case of errors, the write may have succeeded at the primary and an arbitrary subset of the secondary replicas. (If it had failed at the primary, it would not have been assigned a serial number and forwarded.) The client request is considered to have failed, and the modified region is left in an inconsistent state. Our client code handles such errors by retrying the failed mutation. It will make a few attempts at steps (3) through (7) before falling backto a retry from the beginning of the write.
+    + Two types of writes:
+        + Write
+            + Requires an offset within the file.
+        + Record Append
+            + The client appends a new record to the end of the chunk.
+            + If multiple clients append at the same time, the order is not guaranteed, which means the file is not deterministic.
+            + But applications are able to serialize the record appendings
+                + If the appendings are timestamps, then application can read it, and change the order manually then write back.
+                + So for those applications, append can be very efficient as it does not require locks.
+    + File Region State after mutation
+        + **defined** and **consistent**
+            + consistent: all replica have the same data, but the mutations might not be applied in serial order.
+            + defined: the mutations are applied to the file in the serial order.
+            + Defined is stronger than consistent.
+            + For banking systems, we want data to be defined since we care about the order of each transaction (mutation). For online photo storing, we want data to be consistent since we do not care about the order.
+        + Serial + Write + Success: defined
+        + Concurrent + Write + Success: consistent but undefined
+        + Failure: inconsistent
+        + Record Append (no matter serial or concurrent access): defined interspersed with inconsistent
+
+
+
+### Comparison between NFS, AFS and GFS
+
++ On reading the newest copy
+    + NFS: as long as we don’t cache...
+    + AFS: the read callback might be broken...
+    + GFS: we can check the master... 
+
++ On writing to the master copy
+    + NFS: write through
+    + AFS: you have to have the callback... (delay a bit)
+    + GFS: we will update all three replicas, but what happen if a read occurs during the process we are updating the copies. (name space and file to chunks mapping)
+
+
+
+### Pessimistic vs Optimistic
++ Pessimistic: using a lock
+    + Simple locking:
+        + Say three files a, b, c. Three clients trying to write to all three files.
+        + Whoever is trying to access file x needs to acquire lock(x) first before writing to the file.
+    + Two-phase locking:
+        + Locking phase: acquire the locks.
+        + Unlocking phase: release the locks.
+        + Hence, typically - acquire locks at the beginning, then do transactions, then release the locks one by one.
+        + In simple locking, you can acquire the lock for the same file multiple times, but in two-phase locking, if you have acquired the lock for one file, then after you have released the lock, you should not acquire the same lock again.
+        + Two-phase locking guarantees consistency (not defined), but does not guarantee no deadlock (might cause deadlock).
+
++ Optimistic: used by both AFS and GFS
+
++ When to use optimistic approach?
+    + The chance for certain bad things to occur is very small.
+    + It is very expensive to pessimistically prevent the probability.
+        + e.g. using lock will strongly impact performance
+    + "Let it happen, and we try to detect and recover from that"
+
++ Optimistic - details
+    + When multiple clients write to a GFS block, GFS will maintain a recording mechanism s.t. if the writes have no conflict, then all good; if it detects a conflict, then needs to resolve the conflict based on the recording.
+        + e.g. AFS: the callback is a simple form of recording.
+    + In other words, Optimistic allows inconsistency, and deal with inconsistency later.
+    + But the inconsistency will NOT be noticed by the clients. So only after GFS has handled such inconsistency can the consistent file be read by the clients.
+
+
+### Optimistic concurrency control (OCC)
+Do a logging on every transaction program executes. After a period of time, enter the validation phase. If during such period of time, no conflict occurred, then enter the commit state (push to the disk and make it available to the clients). If there was conflict, then enter the abort state and invalidate the log. (This is similar to what AFS does)
+
++ Three phases in OCC:
+    + Working phase
+        + The coordinator records the "readset" and "writeset" of each transaction (logging)
+        + The mutations (writeset) in the logging can be regarded as a shadow (temporary) copy which have not yet committed.
+    + Validation phase
+        + On closing the transaction, the coordinator validates the transaction (looks for conflicts)
+        + If validate succeeded, the transaction can commit.
+        + If validate failed, either the whole transaction or the conflict ones are aborted.
+    + Update phase
+        + If validated, the changes(mutations) are made persistent.
+        + Read-only transactions can commit immediately after passing the validation phase.
+
++ How to validate?
+    + When a transaction enters the validation phase, it is assigned a transaction number.
+    + Recall that there are three phases in OCC. Two transactions T0, T1 (T0 starts before T1) may overlap.
+        + (Draw a picture would help.)
+        + If no overlap, then no conflict.
+        + If T0 starts and then T1, and **there is some overlap in between**:
+            + It means when T1 starts, T0 is in Working phase, or Validation phase, or Update phase.
+            + If T0 consists of reads only, then no conflict.
+            + If T1 reads something that has been written by earlier committed transactions, then there is a conflict.
+
+Hence, if a later transaction overlaps with an earlier transaction, and the later transaction reads something that has been written by the earlier transaction, then the later transaction needs to abort.
+
++ Is there a way not to abort?
+    + If ReadSet(T1) intersects with WriteSet(T0)
+
+
 
 
 
