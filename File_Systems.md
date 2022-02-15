@@ -1002,7 +1002,7 @@ The three-phase commit protocol eliminates this problem by introducing the Prepa
 The pre-commit phase introduced above helps the system to recover when a participant or both the coordinator and a participant failed during the commit phase. When the recovery coordinator takes over after the coordinator failed during a commit phase of two-phase commit, the new pre-commit comes handy as follows: On querying participants, if it learns that some nodes are in commit phase then it assumes that the previous coordinator before crashing has made the decision to commit. Hence it can shepherd the protocol to commit. Similarly, if a participant says that it had not received a PrepareToCommit message, then the new coordinator can assume that the previous coordinator failed even before it completed the PrepareToCommit phase. Hence it can safely assume that no participant has committed the changes, and hence safely abort the transaction.
 
 
-### Lecture 9 - Google FS
+### Lecture 9 - Google FS & Optimistic Concurrency Control
 
 #### Google FS
 + First generation (slide 51)
@@ -1121,18 +1121,110 @@ Do a logging on every transaction program executes. After a period of time, ente
             + If T0 consists of reads only, then no conflict.
             + If T1 reads something that has been written by earlier committed transactions, then there is a conflict.
 
-Hence, if a later transaction overlaps with an earlier transaction, and the later transaction reads something that has been written by the earlier transaction, then the later transaction needs to abort.
+Hence, if a later transaction overlaps with earlier transactions, and the later transaction reads something that has been written by earlier transactions, then the later transaction needs to abort.
 
 + Is there a way not to abort?
-    + If ReadSet(T1) intersects with WriteSet(T0)
+    + If the only intersection is ReadSet(T1) and WriteSet(T0).
+    + Assume WriteSet(T1) does not intersect with ReadSet(T0).
+    + Then it is safe to execute T1 first then T0 although T1 has a larger transaction number. Hence, no need to abort T1.
+
++ Distributed OCC
+    + The above considers only on a single machine, here we consider how OCC works in distributed FS.
+    + Setup: multiple coordinators trying to apply transactions on multiple servers.
+    + Question: How does the transaction order conflict in each server can be solved?
 
 
+### Lecture 10 - Priority Ceiling Protocol
++ Priority Inversion
+    + Concept: an interference between two mechanisms using any kind of system that will handle concurrent activities.
+    + 1st mechanism: Real-time priority scheduling
+        + Given limited CPU resources, we assign priority to each of the tasks, and the tasks would be executed in an order based on their priority.
+        + In freeBSD kernel 256 priority levels, 64 scheduling classes(queues) with each matching 4 priority levels, i.e. the highest 4 priority levels will be treated as having the same priority.
+    + 2nd mechanism: Mutual exclusion
+        + If a higher priority thread wants to enter a critical section held by a lower priority thread, the higher priority thread has to wait until the lower priority thread leaves the critical section.
+        + This has a strong impact when parallel execution.
+        + Need to make it as small as possible.
+    + Priority Inversion
+        + If thread1 has the highest priority, then thread2 then thread3.
+        + If thread3 comes first, and enters the critical section, then thread1 comes.
+        + Then thread1 will keep executing until it tries to enter the critical section since thread3 is holding the lock.
+        + If at the time thread1 gets blocked, thread2 comes, then thread3 will keep holding the lock and cannot execute until thread2 finished.
+        + In this case, thread1 is blocked by thread2, while thread2 has lower priority than thread1.
+        + Things get worse if more threads with lower priority than thread1 but higher priority than thread3.
+        + Thread1 - with the highest priority, cannot execute!!!
+        + This is called priority inversion - a lower priority task is blocking a higher priority task due to mutual exclusion.
+
+Is there a way to solve priority inversion problem?
+
++ Priority Inheritance
+    + We can bump up the lower priority tasks to a higher priority level.
+    + In previous case, since thread3 is blocking thread1 due to mutual exclusion, after thread1 gets blocked, even though thread2 comes, we execute thread3 instead of thread2. Hence, thread2 will not start executing until thread1 has finished.
+    + Implementation:
+        + For each semaphore, a list of blocked threads (willing to acquire such lock) are stored in the corresponding priority queue (waiting queue).
+        + A thread T uses its assigned priority, unless it is in its critical section and is currently blocking some higher priority threads. In such case, thread T will inherit the highest dynamic priority of all the threads it blocks.
+            + e.g. Ti is blocking T20, and Ti has higher priority than T20, then priority level for Ti is still i. If T9 comes into the priority queue, and Ti has lower priority than T9, then Ti will have priority level 9. 
+        + If a thread Ti is holding two semaphores m1 and m2, (priority level: Tk > Tj > Ti), if Tj is blocked in m1's priority queue, and Tk is blocked in m2's priority queue, then Ti will have the highest priority level k.
+        + Priority inheritance is transitive; that is, if thread Ti blocks Tj, and Tj blocks Tk (priority level: Tk > Tj > Ti), then Ti can inherit the priority level of Tk. Hence, there might be a chain of changes in priority levels of multiple threads.
+    + Two potential problems:
+        + Deadlock:
+            + Two threads need to access a pair of shared resources (A, B) simultaneously. If (A, B) are accessed in opposite orders by each thread, then deadlock may occur.
+            + Example:
+                + Two threads, T1 > T2
+                + T1: P(S1); P(S2); V(S2); V(S1);
+                + T2: P(S2); P(S1); V(S1); V(S2);
+                + If T2 starts first, and then T1 preempts before T2 does P(S1), then deadlock will occur.
+        + Blocking chain:
+            + The blocking duration is bounded by at most the sum of critical section time lengths, but that can be substantial.
+            + If a lot of lower priority threads get bumped up to higher priority levels, it is still, to some extent, blocking other threads.
+            + Example: (L - normal tasks without acquiring mutex, R - tasks needed in critical section, double R: acquire, then release)
+                + T1: L R2 L R3 L R4 L ... L Rn L;
+                + T2: L R2 R2;
+                + T3: L R3 R3;
+                + ...
+                + Tn: L Rn Rn;
+            + In the above example, it is possible that T1 (highest priority) got blocked for each thread with lower priority.
+
+How to solve the deadlock and blocking chain problems?
+
++ Priority Ceiling Protocol (PCP)
+    + The most common feature in fully-preemptive kernel like Linux.
+    + Detail:
+        + A higher priority thread can be blocked **at most once in its life time** by a lower priority thread.
+        + Deadlocks can be avoided (not prevented). But for Priority Ceiling Emulation (PCE), it is deadlock prevention.
+        + Transitive inheritance is prevented (no more complexity brought by transitive inheritance).
+    + Deadlock:
+        + Detection
+        + Prevention
+            + Follow a procedure and no deadlock will be possible.
+            + e.g. everyone follows a specific semaphore acquiring order
+        + Avoidance
+            + Before acquiring the lock, need to first watch what others are doing, and then proceed.
+        + In Priority Ceiling Protocol, if a mutex M is available, and thread T needs it, T needs to check before locking it. However, we do not know whether a higher priority thread will occur in the next few seconds.
+    + What to check before acquiring a lock?
+        + Priority ceiling - a value predefined for each mutex while the program is compiled. Question: in user mode, we initialize several mutices and threads, and while compiling, how priority ceiling values are determined?
+        + Explainations:
+            + The value of priority ceiling is the highest priority level of a thread that allowed to access this mutex.
+            + It is impossible to have any thread with a higher priority level than the priority ceiling value to access this mutex.
+            + Given two groups of mutex - locked mutex and unlocked mutex, and a newly coming thread with priority level x. 
+                + For each locked mutex, it has a priority queue of threads with different priority levels. Hence, the current thread can choose to either wait in the queue of locked mutex, or grab an unlocked mutex. 
+                + For priority inheritance protocol, current thread can grab any mutex either locked or unlocked (Question - is this correct?)
+                + For priority ceiling protocol, current thread can grab the unlocked mutex as well (as long as such mutex has higher value of priority ceiling than current thread), but when trying to grab the locked mutex, it needs to check something more.
+                + First of all, for those mutex with priority ceiling lower than **or equal to** current thread's priority level, need to skip, since current thread is not allowed to acquire a mutex with lower priority ceiling value.
+                + Next, for each mutex with priority ceiling value higher than current thread's priority level, needs to check its corresponding priority queue - suppose the threads with the highest priority level waiting on that queue has priority level k.
+                    + If priority(current) > k, then cannot wait on such mutex.
+                    + If priority(current) < k, then can wait on such mutex.
+                    + In other words, if current thread's priority is not greater than the highest priority level of those threads waiting on the locked mutex, then current thread cannot wait on such mutex.
+            + What if current thread has priority level 2, with no unlocked mutex, and for all the locked mutex, there is only 1 mutex with priority ceiling value being 2, in which the corresponding priority queue has a thread with priority level 9?
+                + This means there is only one possible mutex that thread2 can wait on, but for now, such mutex's highest priority thread has level 9, so thread2 has to wait until thread9 has finished.
 
 
+PCP: can a thread acquires an unlocked mutex? Why can it only acquire a locked mutex?
+PCP: how does this solve the example of blocking chain? If T1 has not acquired the lock, then in the priority queue of the corresponding mutex, there will not be T1 waiting there. So if another lower priority thread comes, it needs to check before acquiring a lock, however, T1 is not waiting there.
+PCP: priority ceiling has two values right? One is the original value determined in compile time, the other is determined by the threads waiting on such mutex? So the value determined in compile time is the upperbound? If ceiling is 2, unlocked, then thread9 can acquire that lock, then priority ceiling will change to 9 or remains as 2? If then thread 3 comes, it will acquire the lock as well, since it could do that because thread3 is lower than 2, greater than 9, right? If thread2 comes, it cannot acquire the lock, why it may cause deadlock?
 
+So thread3 can grab the mutex with ceiling being 2, but highest priority of thread being 9 because it makes sure that thread3 will be able to preempt after thread9 releases the lock?
 
-
-
+What if thread3 grabs another mutex not acquired by thread9?
 
 
 
