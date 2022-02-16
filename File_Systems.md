@@ -1203,17 +1203,10 @@ How to solve the deadlock and blocking chain problems?
     + What to check before acquiring a lock?
         + Priority ceiling - a value predefined for each mutex while the program is compiled. Question: in user mode, we initialize several mutices and threads, and while compiling, how priority ceiling values are determined?
         + Explainations:
-            + The value of priority ceiling is the highest priority level of a thread that allowed to access this mutex.
-            + It is impossible to have any thread with a higher priority level than the priority ceiling value to access this mutex.
-            + Given two groups of mutex - locked mutex and unlocked mutex, and a newly coming thread with priority level x. 
-                + For each locked mutex, it has a priority queue of threads with different priority levels. Hence, the current thread can choose to either wait in the queue of locked mutex, or grab an unlocked mutex. 
-                + For priority inheritance protocol, current thread can grab any mutex either locked or unlocked (Question - is this correct?)
-                + For priority ceiling protocol, current thread can grab the unlocked mutex as well (as long as such mutex has higher value of priority ceiling than current thread), but when trying to grab the locked mutex, it needs to check something more.
-                + First of all, for those mutex with priority ceiling lower than **or equal to** current thread's priority level, need to skip, since current thread is not allowed to acquire a mutex with lower priority ceiling value.
-                + Next, for each mutex with priority ceiling value higher than current thread's priority level, needs to check its corresponding priority queue - suppose the threads with the highest priority level waiting on that queue has priority level k.
-                    + If priority(current) > k, then cannot wait on such mutex.
-                    + If priority(current) < k, then can wait on such mutex.
-                    + In other words, if current thread's priority is not greater than the highest priority level of those threads waiting on the locked mutex, then current thread cannot wait on such mutex.
+            + The value of priority ceiling is the highest priority level of all threads waiting on this mutex.
+            + For any newly coming thread with priority level x willing to acquire lock(i),
+                + If lock(i) is already been held by another thread, either higher priority or lower priority than the newly coming thread, then the new thread just appends to the priority queue of lock(i).
+                + **If lock(i) is not held by any other thread, then the new thread needs to make a decision: should I acquire lock(i) or not? In order to make the correct decision, needs to check every mutex that is locked, and check their priority ceiling values. If x <= the highest priority ceiling value, then the new thread CANNOT acquire the lock.**
             + What if current thread has priority level 2, with no unlocked mutex, and for all the locked mutex, there is only 1 mutex with priority ceiling value being 2, in which the corresponding priority queue has a thread with priority level 9?
                 + This means there is only one possible mutex that thread2 can wait on, but for now, such mutex's highest priority thread has level 9, so thread2 has to wait until thread9 has finished.
 
