@@ -1207,9 +1207,10 @@ How to solve the deadlock and blocking chain problems?
             + For any newly coming thread with priority level x willing to acquire lock(i),
                 + If lock(i) is already been held by another thread, either higher priority or lower priority than the newly coming thread, then the new thread just appends to the priority queue of lock(i).
                 + **If lock(i) is not held by any other thread, then the new thread needs to make a decision: should I acquire lock(i) or not? In order to make the correct decision, needs to check every mutex that is locked, and check their priority ceiling values. If x <= the highest priority ceiling value, then the new thread CANNOT acquire the lock.**
-            + What if current thread has priority level 2, with no unlocked mutex, and for all the locked mutex, there is only 1 mutex with priority ceiling value being 2, in which the corresponding priority queue has a thread with priority level 9?
-                + This means there is only one possible mutex that thread2 can wait on, but for now, such mutex's highest priority thread has level 9, so thread2 has to wait until thread9 has finished.
-
+            + What if current thread has priority level 2, willing to acquire an unlocked mutex, and for all the locked mutex, there is a mutex with priority ceiling value being 2, and such mutex is currently acquired by thread9?
+                + Current thread cannot acquire such unlocked mutex, since it might cause deadlock.
+                    + e.g. T2: P1 P2 V2 V1. P1 is the mutex currently acquired by thread9, with priority ceiling being 2. P2 is the mutex that has not been acquired by any thread. Since T2 checks all locked mutex and noticed that T2 is not higher than all priority ceilings, T2 cannot lock P2. Because now P1 is acquired by thread9, if T2 acquires P2 first, then for P1, it is T2 that being the next to acquire the lock. However, there will be a deadlock. 
+                
 
 PCP: can a thread acquires an unlocked mutex? Why can it only acquire a locked mutex?
 PCP: how does this solve the example of blocking chain? If T1 has not acquired the lock, then in the priority queue of the corresponding mutex, there will not be T1 waiting there. So if another lower priority thread comes, it needs to check before acquiring a lock, however, T1 is not waiting there.
