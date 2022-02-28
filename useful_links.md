@@ -49,6 +49,8 @@
 
 + [iowrite32(), writel() and memory barriers taken apart](http://billauer.co.il/blog/2014/08/wmb-rmb-mmiomb-effects/)
 
++ [An Introduction to IOMMU Infrastructure in the Linux Kernel](https://lenovopress.com/lp1467.pdf)
+
 LWN:
 + [A new I/O memory access mechanism](https://lwn.net/Articles/102232/)
 
