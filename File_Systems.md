@@ -1045,7 +1045,8 @@ The pre-commit phase introduced above helps the system to recover when a partici
     + File Region State after mutation
         + **defined** and **consistent**
             + consistent: all replica have the same data, but the mutations might not be applied in serial order.
-            + defined: the mutations are applied to the file in the serial order.
+            + defined: all replica have the same data, but the mutations are applied to the file in the serial order.
+            + Difference between consistent and defined: whether the mutations are applied in the serial order.
             + Defined is stronger than consistent.
             + For banking systems, we want data to be defined since we care about the order of each transaction (mutation). For online photo storing, we want data to be consistent since we do not care about the order.
         + Serial + Write + Success: defined
