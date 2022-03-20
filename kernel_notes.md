@@ -1,21 +1,38 @@
 # Kernel Notes
 
++ ULK: Understanding the Linux Kernel
+
 ## Terminologies:
 + BIOS: Basic Input/Output System
-+ GDT: Global Descriptor Table
-+ LDT: Local Descriptor Table
 + MBR: Master Boot Record
+    + Typically the first sector of the disk, or the partition of the disk.
 + IDT: Interrupt Descriptor Table
 + idtr register: IDT (Interrupt Descriptor Table) Register
-+ GDT: Global Descriptor Table
-+ gdtr register: GDT (Global Descriptor Table) Register
 + PIC: Programmable Interrupt Controllers
 + cr0: control register ([src](https://wiki.osdev.org/CPU_Registers_x86))
 + PE bit: Protected mode Enabled bit
 + PG bit: Paging bit
 + bss: block starting symbol - the portion of an object file, executable, or assembly language code that contains statically allocated variables that are declared but have not been assigned a value yet.
-
-
++ LDT: Local Descriptor Table
++ GDT: Global Descriptor Table
++ Segment Descriptor: an 8-byte entry in LDT or GDT that describes the segment characteristics.
+    + Segment descriptor fields: p. 38
+    + Code Segment Descriptor
+    + Data Segment Descriptor
+    + Task State Segment Descriptor (TSSD)
+    + Local Descriptor Table Descriptor (LDTD)
++ gdtr register: GDT (Global Descriptor Table) Register
+    + stores the address and size of the GDT in memory.
++ ldtr register: LDT (Local Descriptor Table) Register
+    + stores the address and size of the currently used LDT.
++ Logical Address: \[segment (16bit) | offset (32bit)\]
+    + Logical Addr ---SegmentationUnit---> Linear Addr (virt addr) ---PagingUnit---> Physical Addr.
++ cs, ss, ds, es, fs, gs registers (ULK p. 37)
+    + code segment, stack segment, data segment
+    + The rest three are general purpose registers.
++ CPL: Current Privilege Level
+    + 2-bit field in cs register (code segment register) that specifies CPL of the CPU. 0 - kernel mode, highest privilege level; 3: user mode, lowest privilege level.
++ PAE: Physical Address Extension (huge pages, 2MB per page)
 
 ## Bootstrap
 Resource: *Appendix A, Understanding the Linux Kernel*.
@@ -118,4 +135,21 @@ Chapter 8).
 + The kernel thread for process 1 is created by invoking the kernel_thread() function. In turn, this kernel thread creates the other kernel threads and executes the /sbin/init program ("Kernel Threads" in Chapter 3).
 
 
+## What is done in H/W and what is done in Linux
+The consistency between the cache levels is implemented at the hardware level. Linux ignores these hardware details and assumes there is a single cache.
+
+When the cr3 control register of a CPU is modified, the hardware automatically invalidates all entries of the local TLB, because a new set of page tables is in use and the TLBs are pointing to old data.
+
+
 ## mm
+
+
+
+## Program Execution
+While going through the commit history of eager paging, there is one step that added a syscall to register a process as eager paging candidate, so that user space program can run the process as eager paging.
++ linux-5.13.11/arch/x86/entry/syscalls/syscall_64.tbl:
+    + This added a new entry of eagerpaging to the syscall table.
++ linux-5.13.11/fs/exec.c:
+    + This file contains the ```execve()``` syscall implementation, which is closely related to program execution.
+    + The function ```begin_new_exec()``` is modified. After checking the [patch](https://lkml.org/lkml/2020/5/5/1216), the older version function is ```flush_old_exec()```. Fortunately, this function is mentioned in the book ULK ("The exec Functions" in Chapter 20: Program Execution).
+    
