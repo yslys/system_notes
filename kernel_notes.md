@@ -33,6 +33,13 @@
 + CPL: Current Privilege Level
     + 2-bit field in cs register (code segment register) that specifies CPL of the CPU. 0 - kernel mode, highest privilege level; 3: user mode, lowest privilege level.
 + PAE: Physical Address Extension (huge pages, 2MB per page)
++ ELF: Executable and Linking Format
+    + The standard Linux executable format
+    + An executable format is described by an object of type ```linux_binfmt```, such type provides 3 methods:
+        + load_binary: sets up a new execution environment for current process by reading the info stored in an executable file.
+        + load_shlib
+        + core_dump
+
 
 ## Bootstrap
 Resource: *Appendix A, Understanding the Linux Kernel*.
@@ -145,11 +152,53 @@ When the cr3 control register of a CPU is modified, the hardware automatically i
 
 
 
-## Program Execution
+## Process ```struct task_struct```
+An **Execution Context**, which can be independently scheduled, has its own process descriptor - ```struct task_struct```, i.e. process descriptor pointers (in the case of address). This structure is defined in ```include/linux/sched.h```.
+
+#### Memory Descriptor
+All information related to the process address space is included in an object called the *memory descriptor*, which is of type ```struct mm_struct```, i.e. ```struct mm_struct *mm```. This structure is defined in ```/include/linux/mm_types.h```. (Note, in ULK, it states it is defined in ```include/linux/sched.h```, but only in v2.6 kernel.)
+
+Another thing worth mentioning is - ```struct page```, ```struct vm_area_struct``` are also defined in ```/include/linux/mm_types.h```.
+
+Given a process, the pointer to the memory descriptor can be retrieved by ```current->mm```.
+
++ Inside ```struct mm_struct```, we added a boolean variable ```bool eagerpaging``` to indicate whether current process's address space is using eagerpaging or not.
++ Where we added such boolean variable?
+    + there is a struct inside ```struct mm_struct```. In other words, it looks like the following:
+    +
+    ```
+        struct mm_struct {
+            struct {
+                // something here
+                bool eagerpaging; // newly added
+            } __randomize_layout;
+            unsigned long cpu_bitmap[];
+        };
+    ```
+    + What is ```__randomize_layout```?
+        + [Article from LWN](https://lwn.net/Articles/722293/)
+        + [patch](https://lore.kernel.org/lkml/1495829844-69341-7-git-send-email-keescook@chromium.org/T/#maef5a5badd660e2064cdd48fc3e95c361c0aa4ee). (Search for mm_struct.)
+        + This marks most of the layout of ```mm_struct``` as randomizable, but leaves cpu bitmap untouched at the end.
+    + What is designated layout?    
+        + [patch](https://lore.kernel.org/lkml/1495829844-69341-4-git-send-email-keescook@chromium.org/)
+        + This allows structure annotations for requiring designated initialization in GCC 5.1.0 and later: [link to GCC doc on Designated Initializers](https://gcc.gnu.org/onlinedocs/gcc/Designated-Inits.html)
+        + The structure randomization layout **plugin** will be using this to help identify structures that need this form of initialization.
+
+#### Program Execution
 While going through the commit history of eager paging, there is one step that added a syscall to register a process as eager paging candidate, so that user space program can run the process as eager paging.
 + linux-5.13.11/arch/x86/entry/syscalls/syscall_64.tbl:
     + This added a new entry of eagerpaging to the syscall table.
+    + But on RISC-V, it is slightly different
+    + TODO:
 + linux-5.13.11/fs/exec.c:
-    + This file contains the ```execve()``` syscall implementation, which is closely related to program execution.
+    + This file contains the ```execve()``` syscall implementation, which is the only syscall for program execution.
     + The function ```begin_new_exec()``` is modified. After checking the [patch](https://lkml.org/lkml/2020/5/5/1216), the older version function is ```flush_old_exec()```. Fortunately, this function is mentioned in the book ULK ("The exec Functions" in Chapter 20: Program Execution).
-    
+        + ```sys_execve()``` service routine takes in 3 parameters in user space: address of executable pathname, address of NULL-terminated array (each string is a cmdline argument), address of NULL-terminated array (each string is an environment variable in the ```NAME=value``` format).
+        + ```sys_execve()``` copies the executable pathname to a newly allocated page frame, then invokes ```do_execve()``` function, which then calls ```load_binary``` method.
+        + The ```load_binary``` method corresponding to an executable file format invokes ```flush_old_exec()``` to release almost all resources used by the previous computation.
+
+#### Process termination
++ In Linux 2.6, there are two syscalls that terminate a user mode application:
+    + ```exit_group()```: terminates a full thread group, i.e. a whole multithreaded application
+    + ```_exit()```: terminates a single process, regardless of any other process in the thread group of the victim. The main function inside is ```do_exit()```.
+    + In ```do_exit()```, we added an if-statement to check if the current process is eagerpaging process, if yes, then calls ```clear_eagerpaging_process()``` function on ```current->comm```.
