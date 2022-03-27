@@ -166,7 +166,7 @@ Since we are now using QEMU which provides us a virtual hardware, we need to man
 + Firmware: OpenSBI (M Mode)
 
 
-Note that in order to boot Linux kernel, we need to use U-Boot in S mode. U-Boot is required when building OpenSBI, the firmware. However, although we need to build U-Boot first and then the firmware, during the boot process, the firmware is required to start U-Boot.
+Note that in order to boot Linux kernel, we need to use U-Boot in S mode. U-Boot is required when building OpenSBI, the firmware. However, although we need to build U-Boot first and then the firmware (OpenSBI), during the boot process, the firmware(OpenSBI) is required to start U-Boot.
 
 #### Bootloader
 We will start with U-Boot bootloader.
@@ -209,7 +209,6 @@ Next, we will start building U-Boot. The full script could be found in uboot-bui
 # Download U-Boot source
 git clone https://github.com/U-Boot/U-Boot u-boot
 cd u-boot
-git checkout v2021.01
 
 # Find U-Boot ready-made configurations for RISC-V
 ls configs | grep riscv
@@ -239,13 +238,18 @@ rm -rf opensbi
 # download the source of OpenSBI
 git clone https://github.com/riscv/opensbi.git
 cd opensbi
-git checkout v0.8
+# git checkout v0.8
+# Do not use v0.8, as this would lead an error while "saveenv" in U-Boot mode.
+# In detail, saveenv will not flush to virtio device (our disk), so after
+# reboot, the environment variable will remain unchanged even it displayed:
+#   "Saving Environment to FAT... OK" after we saveenv.
 
 # compile OpenSBI (firmware)
 # FW_PAYLOAD_PATH: the path to firmware payload (U-Boot)
-make CROSS_COMPILE=riscv64-unknown-linux-gnu- \
-     PLATFORM=generic \
-     FW_PAYLOAD_PATH=../u-boot/u-boot.bin
+# PLATFORM=generic: under opensbi root directory, it has a directory called
+#                   platform, "generic" means we are using 
+                    ./opensbi/platform/generic to build openSBI
+make CROSS_COMPILE=riscv64-unknown-linux-gnu- PLATFORM=generic FW_PAYLOAD_PATH=../u-boot/u-boot.bin
 cd ..
 ```
 After that, we could find a binary file ```./opensbi/build/platform/generic/firmware/fw_payload.elf``` that contains U-Boot, which would be used by QEMU for boot process.
@@ -372,10 +376,13 @@ The preparation that we need to do is to re-build OpenSBI, passing the newly bui
 ```
 # rebuild OpenSBI against the Linux kernel
 cd opensbi
-make PLATFORM=generic FW_PAYLOAD_PATH=../linux-5.11-rc3/arch/riscv/boot/Image
+make CROSS_COMPILE=riscv64-unknown-linux-gnu- \
+    PLATFORM=generic \
+    FW_PAYLOAD_PATH=../linux-5.11-rc3/arch/riscv/boot/Image
 cd ..
 
-# -append "console=ttyS0": this means we are passing the kernel command line to Linux boot
+# -append "console=ttyS0": this means we are passing the kernel command line to
+# Linux boot
 
 qemu-system-riscv64 -m 2G \
     -nographic \
@@ -387,7 +394,7 @@ qemu-system-riscv64 -m 2G \
 
 However, this approach eliminates the U-Boot, which is not similar to the boot process in real world. What we want is a process that involves OpenSBI, U-Boot and Linux kernel. In other words, the first-stage bootloader (OpenSBI) starts the bootloader (U-Boot), then bootloader starts the Kernel, and then starts user space.
 
-Therefore, we need to set the U-Boot environment to load the Linux kernel and to specify the Linux kernel command line, i.e. instead of letting OpenSBI invoke the Linux kernel, we let OpenSBI invoke U-Boot, then U-Boot invokes Linux kernel. For this purpose, we need some storage space to store the U-Boot environment, to load the kernel binary, and the storage space also contains the file system that Linux will boot on.
+Therefore, we need to set the U-Boot environment to load the Linux kernel and to specify the Linux kernel command line, i.e. instead of letting OpenSBI invoke the Linux kernel, we let OpenSBI invoke U-Boot, then U-Boot invokes Linux kernel. For this purpose, we need some storage space to store the U-Boot environment, to load the kernel binary, and the storage space also contains the file system that Linux will boot on. Such storage space is what we called "disk image".
 
 ### Disk Image
 First create a 4GB disk image using ```dd```command.
@@ -507,23 +514,202 @@ sudo mkfs.vfat -F 32 -n boot /dev/loop10p1
 sudo mkfs.ext4 -L rootfs /dev/loop10p2
 ```
 
+What we are doing next is copy our kernel image to our first disk partition, so that U-Boot will be able to figure it out and boot Linux from there.
+```
+# create a directory under /mnt, to be mounted by /dev/loop10p1 (first disk
+# partition)
+sudo mkdir /mnt/boot
+sudo mount /dev/loop10p1 /mnt/boot
+
+# copy the Linux image to our first disk partition
+cp linux-5.11-rc3/arch/riscv/boot/Image /mnt/boot/
+# Permission denied! Need to append sudo. But can we make it faster?
+#   By using !! to represent the last executed command
+sudo !!
+
+sudo umount /mnt/boot
+sudo rm -rf /mnt/boot
+```
+
+Now that we have our Linux image in the first partition, we need to tell U-Boot about it. In other words, for U-Boot, it does not know it needs find the environment in a FAT partition (the first partition) on a virtio disk yet, and we need to tell it, by adding support for finding the FAT environment. But how? By reconfigure and then recompile it.
+
+```
+cd u-boot
+
+# reconfigure it
+CROSS_COMPILE=riscv64-unknown-linux-gnu- make menuconfig
+# Below are what we want to configure:
+# CONFIG_ENV_IS_IN_FAT=y, specifying the environment will be in FAT partition
+# CONFIG_ENV_FAT_INTERFACE="virtio", the FAT will be in a virtIO device
+# CONFIG_ENV_FAT_DEVICE_AND_PART="0:1", use the first partition from the first
+#       virtIO device. This might be a bit confusing. It has the format of
+#       "index_of_virtIO_device:index_of_partition_within_the_device".
+#       index_of_virtIO_device starts from 0;
+#       index_of_partition_within_the_device starts from 1; (/dev/loop10p1)
+# If we only modify u-boot/.config:
+#       - add CONFIG_ENV_IS_IN_FAT=y
+#       - add CONFIG_ENV_FAT_INTERFACE="virtio"
+#       - add CONFIG_ENV_FAT_DEVICE_AND_PART="0:1"
+#       - add CONFIG_ENV_FAT_FILE="uboot.env"
+#       - For MMC device number and partition number, can set default to be 0:
+#           - CONFIG_SYS_MMC_ENV_DEV=0
+#           - CONFIG_SYS_MMC_ENV_PART=0
+
+# To use the menuconfig interface, do the following:
+#       Select "Environment"
+#       Select "Environment is in a FAT filesystem"
+#       Then there will be some new options appeared
+#       Select "Name of the block device for the environment", hit enter
+#       Type in: "virtio" (excluding double quotes), then "ok"
+#       Select "Device and partition for where to store the environemt in FAT"
+#       Hit enter, type in: "0:1" (excluding double quotes), then "ok" 
+#       
+# Note: this approach will generate the FAT file to use for the environment, 
+#       with the filename being uboot.env.
+# For more details, check the next paragraph.
+
+
+# recompile it
+CROSS_COMPILE=riscv64-unknown-linux-gnu- make -j$(nproc)
+```
+
+#### How .config works?
+What I would be discussing below is how the configuration works:
+
+I did not know how to do it at first, but I solved it later. The first thing I did was to execute ```make menuconfig```. There are several options but I did not know which option to choose. Since we want to configure three things:
++ ```CONFIG_ENV_IS_IN_FAT=y```
++ ```CONFIG_ENV_INTERFACE="virtio"```
++ ```CONFIG_ENV_FAT_DEVICE_AND_PART="0:1"``` 
+They all have prefix of ```CONFIG_ENV```, meaning "environment". And there is actually "Environment" option in menuconfig. So I selected "Environment", and then found the option "Environment is in a FAT filesystem". This corresponds to ```CONFIG_ENV_IS_IN_FAT```. Therefore, I selected that option, and saved, and in the newly generated .config file, it shows the difference. From ```# CONFIG_ENV_IS_IN_FAT is not set``` to ```CONFIG_ENV_IS_IN_FAT=y```. I later noticed that, since we have been focusing on environment configurations, there is also a directory ```./u-boot/env/```, in which it contains a file called ```Kconfig```, which contains the following:
+```
+config ENV_IS_IN_FAT
+	bool "Environment is in a FAT filesystem"
+	depends on !CHAIN_OF_TRUST
+	default y if ARCH_BCM283X
+	default y if ARCH_SUNXI && MMC
+	default y if MMC_OMAP_HS && TI_COMMON_CMD_OPTIONS
+	select FS_FAT
+	select FAT_WRITE
+	help
+	  Define this if you want to use the FAT file system for the environment.
+```
+If we grep ```ENV_IS_IN_FAT``` under ```u-boot/env/``` directory by ```$ grep -r ENV_IS_IN_FAT .```, we can see that:
+```
+./env.c:#ifdef CONFIG_ENV_IS_IN_FAT
+```
+which means, the ```.config``` file is responsible for defining or not defining the macro ```ENV_IS_IN_FAT``` in ```u-boot/env/env.c``` file. Hence, if in ```.config``` file, ```CONFIG_ENV_IS_IN_FAT=y```, then the code between ```#ifdef CONFIG_ENV_IS_IN_FAT``` and ```#endif``` in ```u-boot/env/env.c``` file will be executed.
+
+Remember that we mentioned before that "everytime we update U-Boot, need to re-build the firmware (OpenSBI)". Since we have re-compiled U-Boot, we need to re-compile OpenSBI as well
+```
+cd opensbi
+make clean
+make CROSS_COMPILE=riscv64-unknown-linux-gnu- PLATFORM=generic FW_PAYLOAD_PATH=../u-boot/u-boot.bin
+```
+
+#### Third run with QEMU (with an empty rootfs)
+After re-building the firmware (OpenSBI), we can now run QEMU again!
+```
+qemu-system-riscv64 -m 2G -nographic -machine virt -smp 8 \
+    -bios opensbi/build/platform/generic/firmware/fw_payload.elf \
+    -drive file=disk.img,format=raw,id=hd0 \
+    -device virtio-blk-device,drive=hd0
+```
+Remember to hit enter immediately after the above command is executed, i.e. it would display:
+```
+Hit any key to stop autoboot:  3
+Hit any key to stop autoboot:  2
+Hit any key to stop autoboot:  1
+```
+So hit any key in-between, to stay in U-Boot. we would see the following output:
+
+```
+Platform Name       : riscv-virtio,qemu
+Platform Features   : timer,mfdeleg
+Platform HART Count : 8
+Boot HART ID        : 0
+Boot HART ISA       : rv64imafdcsu
+BOOT HART Features  : pmp,scounteren,mcounteren,time
+BOOT HART PMP Count : 16
+Firmware Base       : 0x80000000
+Firmware Size       : 152 KB
+Runtime SBI Version : 0.2
+
+MIDELEG : 0x0000000000000222
+MEDELEG : 0x000000000000b109
+PMP0    : 0x0000000080000000-0x000000008003ffff (A)
+PMP1    : 0x0000000000000000-0xffffffffffffffff (A,R,W,X)
+
+
+U-Boot 2021.01 (Mar 27 2022 - 00:51:45 -0700)
+
+CPU:   rv64imafdcsu
+Model: riscv-virtio,qemu
+DRAM:  2 GiB
+In:    uart@10000000
+Out:   uart@10000000
+Err:   uart@10000000
+Net:   No ethernet found.
+Hit any key to stop autoboot:  0 
+=>
+```
+
+Now, if we execute ```fatls virtio 0:1```, the output would be:
+```
+=> fatls virtio 0:1
+ 19804672   Image
+
+1 file(s), 0 dir(s)
+```
+Only one file called Image.
+
+
+What we need to do next is to save an environment variable using ```setenv```:
+```
+# set an environment variable foo to be bar
+setenv foo bar
+
+# save an environment
+saveenv     # output should be: "Saving Environment to FAT... OK"
+
+# print the environment variable foo
+printenv foo # the expected output should be: foo=bar.
+
+# fatls again:
+fatls virtio 0:1
+```
+The output should now contains two files:
+```
+=> fatls virtio 0:1
+ 19804672   Image
+   131072   uboot.env
+
+2 file(s), 0 dir(s)
+```
+Now, if we restart QEMU, and still stay in U-Boot mode, execute ```fatls virtio 0:1```, the output should be the same as above.
+
+#### Start Linux from U-Boot
+Now, we should do something to start Linux from U-Boot:
+
+To boot the Linux kernel, U-Boot needs to load a Linux kernel image. In our case, we are using virtIO device, so we load the kernel image from virtio disk to RAM. We can find a suitable RAM address by using ```bdinfo``` command in U-Boot. Such command will show the start and end of RAM address.
+
+```
+# load from FAT of virtio device, with device_number=0, partition_number=1,
+# with target address being 84000000, Image is the file to load.
+fatload virtio 0:1 84000000 Image
+```
+Note that the Image can also be the image of an Initramfs, which is a file system in RAM that Linux can use, but we will not use Initramfs in this demo.
 
 
 
 
 
 
+setenv bootargs 'root=/dev/vda2 rootwait console=ttyS0 earlycon=sbi'
 
-
-
-
-
-
-
-
-
-Now we are in a concole-like space where we could type in some commands we like.
-
+```
+# Now we can detach the file or device (disk.img) with the loop device (/dev/loop10)
+sudo losetup -d /dev/loop10
+```
 ## Resources:
 https://www.youtube.com/watch?v=Y-FUvi1z1aU
 https://www.youtube.com/watch?v=cIkTh3Xp3dA&t=885s
