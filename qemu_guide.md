@@ -873,7 +873,9 @@ EOF
 # Install essential packages
 # Need to install **net-tools** for network interfaces (e.g. ifconfig)
 apt-get update
-apt-get install --no-install-recommends -y util-linux haveged openssh-server systemd kmod initramfs-tools conntrack ebtables ethtool iproute2 iptables mount socat ifupdown iputils-ping vim dhcpcd5 neofetch sudo chrony net-tools
+apt-get install --no-install-recommends -y util-linux haveged openssh-server \
+systemd kmod initramfs-tools conntrack ebtables ethtool iproute2 iptables \
+mount socat ifupdown iputils-ping vim dhcpcd5 neofetch sudo chrony net-tools
 
 # Create base config files
 mkdir -p /etc/network
