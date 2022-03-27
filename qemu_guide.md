@@ -687,24 +687,332 @@ The output should now contains two files:
 ```
 Now, if we restart QEMU, and still stay in U-Boot mode, execute ```fatls virtio 0:1```, the output should be the same as above.
 
+**So, as long as we have the uboot.env file shown, and we are sure that the changes we made to env are persistently saved to virtio device (after reboot), everything would be good.**
+
+Note that the commands we were executing belong to U-Boot commands. For a full list and description of all commands supported by U-Boot, refer to U-Boot reference manual: https://hub.digi.com/dp/path=/support/asset/u-boot-reference-manual/.
+
 #### Start Linux from U-Boot
 Now, we should do something to start Linux from U-Boot:
 
-To boot the Linux kernel, U-Boot needs to load a Linux kernel image. In our case, we are using virtIO device, so we load the kernel image from virtio disk to RAM. We can find a suitable RAM address by using ```bdinfo``` command in U-Boot. Such command will show the start and end of RAM address.
+Requirements for booting Linux:
++ Image: either Linux kernel image or the Initramfs image.
++ Device Tree Binary (DTB).
++ Set the Linux arguments (kernel command line)
 
+**1. Image**:
+To boot the Linux kernel, U-Boot needs to load a Linux kernel image. In our case, we are using virtIO device, so we load the kernel image from virtio disk to RAM. We can find a suitable RAM address by using ```bdinfo``` command in U-Boot. Such command will print board info structure, including the start and end of RAM address.
+
+Hence, in order to tell U-Boot to do it, we need to execute the following (which we will not execute, instead, we would save it to the environment variable so that we do not need to execute it everytime we boot):
 ```
-# load from FAT of virtio device, with device_number=0, partition_number=1,
-# with target address being 84000000, Image is the file to load.
+# fatload: load binary file from a dos filesystem
+# load binary file @Image in the first(@0) @virtio dos filesystem's first (@1) 
+# partition into RAM, with target address being 84000000
 fatload virtio 0:1 84000000 Image
 ```
 Note that the Image can also be the image of an Initramfs, which is a file system in RAM that Linux can use, but we will not use Initramfs in this demo.
 
 
+**2. Device Tree Binary (DTB)**:
+A binary that lets kernel know which SoC and devices we have. This allows the same kernel to support many different SoCs and boards at the same time.
++ Normally, DTB files are compiled from DTS files in ```arch/riscv/boot/dts/```.
++ However, there is no such DTS file for the RISC-V QEMU virt board.
++ According to [mailing list](https://tinyurl.com/y4ae5ptd), the DTB is built by QEMU and passed by QEMU to OpenSBI, and then to U-Boot. So actually we could access the loaded DTB at address ```${fdtcontroladdr}``` in RAM at U-Boot stage.
 
-
-
-
+**3. Linux kernel command line (Image + DTB)**:
+We need to set the Linux arguments (kernel command line):
+```
+# setenv: set an environment variable @bootargs to 'root=...'
+# root=/dev/vda2 : tell Linux to mount the root file system from the second
+#                  partition of the virtual disk (vda2).
+# rootwait : wait for the root device to be ready before trying to mount it.
+# console= : set the device to send Linux booting messages to.
+# console=ttyS0 : directs the Linux kernel booting messages to the first serial
+#                 line (ttyS0). If you put the incorrect value here, you may
+#                 see no message at all.
+# earlycon=sbi : allows to have more booting messages even before the console
+#                driver is initialized. earlycon stands for Early Console.
 setenv bootargs 'root=/dev/vda2 rootwait console=ttyS0 earlycon=sbi'
+```
+
+
+To boot the Linux Image file, we need this command (which we will NOT execute, instead, we would save it to environment variable) that listed below for reference:
+```
+# booti <Linux address> <Initramfs address> <DTB address>
+booti 0x84000000 - ${fdtcontroladdr}
+```
+
+So far we have been discussing about two commands: (1) load Image to a specific address in RAM, and (2) boot Linux Image file and DTB. What we need to do next is to combine them together and save them into the environment variable. Hence, we will define the default series of commands (in this case, 2) that U-Boot will automatically run after a configurable delay (```bootdelay``` environment variable):
+```
+setenv bootcmd 'fatload virtio 0:1 84000000 Image; booti 0x84000000 - ${fdtcontroladdr}'
+
+# then save
+saveenv
+```
+
+
+**4. To Conclude:**
+If you want to manually set environment variable everytime you boot, then remember to first press any key to stay in U-Boot mode, then:
+```
+setenv bootargs 'root=/dev/vda2 rootwait console=ttyS0 earlycon=sbi'
+fatload virtio 0:1 84000000 Image
+booti 0x84000000 - ${fdtcontroladdr}
+```
+
+If you want to save the above commands to environment variable persistently so that no need to execute those everytime we boot into U-Boot state, you could do the following, which is what I would recommend:
+```
+setenv bootargs 'root=/dev/vda2 rootwait console=ttyS0 earlycon=sbi'
+setenv bootcmd 'fatload virtio 0:1 84000000 Image; booti 0x84000000 - ${fdtcontroladdr}'
+saveenv
+
+# then can execute $ boot to boot.
+```
+
+In any case, we would result in the following output:
+```
+...
+[    0.463255] VFS: Mounted root (ext4 filesystem) readonly on device 254:2.
+[    0.465447] devtmpfs: error mounting -2
+[    0.485072] Freeing unused kernel memory: 2144K
+[    0.485971] Run /sbin/init as init process
+[    0.486836] Run /etc/init as init process
+[    0.487150] Run /bin/init as init process
+[    0.487442] Run /bin/sh as init process
+[    0.487960] Kernel panic - not syncing: No working init found.  Try passing init= option to kernel. See Linux Documentation/admin-guide/init.rst for guidance.
+[    0.488556] CPU: 4 PID: 1 Comm: swapper/0 Not tainted 5.11.0-rc3 #1
+[    0.488869] Call Trace:
+[    0.489014] [<ffffffe0000047b8>] walk_stackframe+0x0/0xaa
+[    0.489241] [<ffffffe0006d3a7e>] show_stack+0x32/0x3e
+[    0.489408] [<ffffffe0006d644c>] dump_stack+0x72/0x8c
+[    0.489562] [<ffffffe0006d3c92>] panic+0x100/0x2b6
+[    0.489763] [<ffffffe0006dda82>] kernel_init+0xec/0xf8
+[    0.489954] [<ffffffe0000032f2>] ret_from_exception+0x0/0xc
+[    0.490322] SMP: stopping secondary CPUs
+[    0.491857] ---[ end Kernel panic - not syncing: No working init found.  Try passing init= option to kernel. See Linux Documentation/admin-guide/init.rst for guidance. ]---
+```
+This is the expected output since it mounts the root file system as instructed, but it fails to execute an init process according to the output line ```Kernel panic - not syncing: No working init found.```. That is fine since we have not yet put anything in our root file system (the second partition) yet.
+
+
+
+#### Build our Root File System
+There are two options: BusyBox, or building Ubuntu rootfs on our own.
+
+##### BusyBox:
+```
+wget https://busybox.net/downloads/busybox-1.33.0.tar.bz2
+tar xf busybox-1.33.0.tar.bz2
+cd busybox-1.33.0/
+// TODO:
+```
+
+
+##### Building our own Ubuntu rootfs
+
+BusyBox version is fast and easier, but the problem is that it lacks a lot of useful binaries like git, etc. Since we want to do ```apt-get update```, and make the system a Ubuntu-like system, I choose the second approach, which is described in this [link](https://github.com/carlosedp/riscv-bringup/blob/master/Ubuntu-Rootfs-Guide.md). This link describes the similar approach as the YouTube video, but I ended up with errors that I did not know how to solve. But the link still contains some useful resources that we could borrow (like the kernel modules part).
+
+Note that the line ```echo "root:riscv" | chpasswd``` sets the login to be root, and passward to be riscv.
+
+The self-built Ubuntu rootfs could be found in ```Ubuntu-Hippo-rootfs.tar.gz``` file.
+
+In case we would not be able to access the link in the future, I would paste the commands below:
+> This guide walks thru the build of a Ubuntu root filesystem from scratch. Ubuntu supports riscv64 packages from Focal, released on 04/2020.
+
+> Here we will build an Ubuntu Hirsute Hippo (latest version). I recommend doing this process can be done on a recent Ubuntu host (Focal or newer).
+
+```
+# Install pre-reqs
+sudo apt install debootstrap qemu qemu-user-static binfmt-support dpkg-cross --no-install-recommends
+
+# Generate minimal bootstrap rootfs
+sudo debootstrap --arch=riscv64 --foreign hirsute ./temp-rootfs http://ports.ubuntu.com/ubuntu-ports
+
+# chroot to it and finish debootstrap
+sudo chroot temp-rootfs /bin/bash
+
+/debootstrap/debootstrap --second-stage
+
+# Add package sources (two options: 20.04 Focal, and 21.04 Hirsute Hippo)
+# Pick the one that you want
+
+# For Focal Fossa (Ubuntu 20.04)
+cat >/etc/apt/sources.list <<EOF
+deb http://archive.ubuntu.com/ubuntu/ focal main restricted universe multiverse
+deb-src http://archive.ubuntu.com/ubuntu/ focal main restricted universe multiverse
+
+deb http://archive.ubuntu.com/ubuntu/ focal-updates main restricted universe multiverse
+deb-src http://archive.ubuntu.com/ubuntu/ focal-updates main restricted universe multiverse
+
+deb http://archive.ubuntu.com/ubuntu/ focal-security main restricted universe multiverse
+deb-src http://archive.ubuntu.com/ubuntu/ focal-security main restricted universe multiverse
+
+deb http://archive.ubuntu.com/ubuntu/ focal-backports main restricted universe multiverse
+deb-src http://archive.ubuntu.com/ubuntu/ focal-backports main restricted universe multiverse
+
+deb http://archive.canonical.com/ubuntu focal partner
+deb-src http://archive.canonical.com/ubuntu focal partner
+EOF
+
+# For Hirsute Hippo (Ubuntu 21.04)
+cat >/etc/apt/sources.list <<EOF
+deb http://ports.ubuntu.com/ubuntu-ports hirsute main restricted
+
+deb http://ports.ubuntu.com/ubuntu-ports hirsute-updates main restricted
+
+deb http://ports.ubuntu.com/ubuntu-ports hirsute universe
+deb http://ports.ubuntu.com/ubuntu-ports hirsute-updates universe
+
+deb http://ports.ubuntu.com/ubuntu-ports hirsute multiverse
+deb http://ports.ubuntu.com/ubuntu-ports hirsute-updates multiverse
+
+deb http://ports.ubuntu.com/ubuntu-ports hirsute-backports main restricted universe multiverse
+
+deb http://ports.ubuntu.com/ubuntu-ports hirsute-security main restricted
+deb http://ports.ubuntu.com/ubuntu-ports hirsute-security universe
+deb http://ports.ubuntu.com/ubuntu-ports hirsute-security multiverse
+EOF
+
+# Install essential packages
+# Need to install **net-tools** for network interfaces (e.g. ifconfig)
+apt-get update
+apt-get install --no-install-recommends -y util-linux haveged openssh-server systemd kmod initramfs-tools conntrack ebtables ethtool iproute2 iptables mount socat ifupdown iputils-ping vim dhcpcd5 neofetch sudo chrony net-tools
+
+# Create base config files
+mkdir -p /etc/network
+cat >>/etc/network/interfaces <<EOF
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet dhcp
+EOF
+
+cat >/etc/resolv.conf <<EOF
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+EOF
+
+cat >/etc/fstab <<EOF
+LABEL=rootfs	/	ext4	user_xattr,errors=remount-ro	0	1
+EOF
+
+echo "Ubuntu-riscv64" > /etc/hostname
+
+# Disable some services on Qemu
+ln -s /dev/null /etc/systemd/network/99-default.link
+ln -sf /dev/null /etc/systemd/system/serial-getty@hvc0.service
+
+# Set root passwd
+echo "root:riscv" | chpasswd
+
+sed -i "s/#PermitRootLogin.*/PermitRootLogin yes/g" /etc/ssh/sshd_config
+
+# Clean APT cache and debootstrap dirs
+rm -rf /var/cache/apt/
+
+# Exit chroot
+exit
+sudo tar -cSf Ubuntu-Hippo-rootfs.tar -C temp-rootfs .
+gzip Ubuntu-Hippo-rootfs.tar
+rm -rf temp-rootfs
+```
+
+
+
+So now the Ubuntu Hippo rootfs could be found in ```Ubuntu-Hippo-rootfs.tar.gz``` file. What we need to do next is to generate the kernel modules of Linux that we are using.
+
+##### Generating Kernel Modules
+generate-kernel-modules.sh:
+```
+#!/bin/sh
+
+# remember to change this if you are using another version of Linux
+version="5.11-rc3"  # version=`cat include/config/kernel.release`
+pathtolinux="./linux-5.11-rc3"
+
+cd $pathtolinux
+rm -rf modules_install
+mkdir -p modules_install
+CROSS_COMPILE=riscv64-unknown-linux-gnu- ARCH=riscv make modules_install INSTALL_MOD_PATH=./modules_install
+
+cd ./modules_install/lib/modules
+
+tar -cf kernel-modules-$version.tar .
+gzip kernel-modules-$version.tar
+
+mv ./kernel-modules-$version.tar.gz ../../../
+echo "generating kernel modules finished"
+echo "kernel modules: $pathtolinux/kernel-modules-$version.tar.gz"
+```
+
+In our case, the generated kernel module zip file is: ```./linux-5.11-rc3/kernel-modules-5.11-rc3.tar.gz```.
+
+#### Copy rootfs and kernel modules to second partition of our disk image
+```
+#!/bin/sh
+
+# remember to change this if you are using another version of Linux
+version="5.11-rc3"  # version=`cat include/config/kernel.release`
+pathtolinux="./linux-5.11-rc3"
+
+# Mount the second partition of disk image to /mnt/rootfs
+sudo mkdir -p /mnt/rootfs
+sudo mount /dev/loop10p2 /mnt/rootfs
+
+# Check to see what is in rootfs of disk image
+# In my case, it has only one directory: lost+found
+ls /mnt/rootfs 
+
+# Copy rootfs we generated to disk image (can ls again to see the change)
+sudo tar xvf Ubuntu-Hippo-rootfs.tar.gz -C /mnt/rootfs
+
+# Copy Kernel modules to disk image
+sudo mkdir -p /mnt/rootfs/lib/modules
+sudo tar xvf $pathtolinux/kernel-modules-$version.tar.gz -C /mnt/rootfs/lib/modules
+
+# Copy kernel Image file
+sudo mkdir -p /mnt/rootfs/boot/extlinux
+sudo cp $pathtolinux/arch/riscv/boot/Image /mnt/rootfs/boot/mvlinuz-$version
+
+cat << EOF | sudo tee /mnt/rootfs/boot/extlinux/extlinux.conf
+menu title RISC-V Qemu Boot Options
+timeout 100
+default kernel-$version
+
+label kernel-$version
+        menu label Linux kernel-$version
+        kernel /boot/vmlinuz-$version
+        initrd /boot/initrd.img-$version
+        append earlyprintk rw root=/dev/vda1 rootwait rootfstype=ext4 LANG=en_US.UTF-8 console=ttyS0
+
+label rescue-kernel-$version
+        menu label Linux kernel-$version (recovery mode)
+        kernel /boot/vmlinuz-$version
+        initrd /boot/initrd.img-$version
+        append earlyprintk rw root=/dev/vda1 rootwait rootfstype=ext4 LANG=en_US.UTF-8 console=ttyS0 single
+EOF
+
+```
+
+
+```
+sudo qemu-system-riscv64 -m 2G -nographic -machine virt -smp 8 \
+    -bios opensbi/build/platform/generic/firmware/fw_payload.elf \
+    -drive file=disk.img,format=raw,id=hd0 \
+    -device virtio-blk-device,drive=hd0
+    -netdev tap,id=tapnet,ifname=tap2,script=no,downscript=no \
+    -device virtio-net-device,netdev=tapnet
+
+
+qemu-system-riscv64 -nographic -machine virt -smp 4 -m 4G \
+    -bios opensbi/build/platform/generic/firmware/fw_payload.elf \
+    -drive file=disk.img,format=raw,id=hd0 \
+    -device virtio-blk-device,drive=hd0 \
+    -object rng-random,filename=/dev/urandom,id=rng0 \
+    -device virtio-rng-device,rng=rng0
+    -device virtio-net-device,netdev=usernet \
+    -netdev user,id=usernet,hostfwd=tcp::22222-:22
+
+    -kernel vmlinuz-5.5.0 \
+    -append "console=ttyS0 root=/dev/vda1 rw" \
 
 ```
 # Now we can detach the file or device (disk.img) with the loop device (/dev/loop10)
