@@ -760,7 +760,7 @@ booti 0x84000000 - ${fdtcontroladdr}
 
 If you want to save the above commands to environment variable persistently so that no need to execute those everytime we boot into U-Boot state, you could do the following, which is what I would recommend:
 ```
-setenv bootargs 'root=/dev/vda2 rootwait console=ttyS0 earlycon=sbi'
+setenv bootargs 'root=/dev/vda2 rootwait console=ttyS0 earlycon=sbi rw'
 setenv bootcmd 'fatload virtio 0:1 84000000 Image; booti 0x84000000 - ${fdtcontroladdr}'
 saveenv
 
@@ -833,7 +833,8 @@ sudo chroot temp-rootfs /bin/bash
 # Add package sources (two options: 20.04 Focal, and 21.04 Hirsute Hippo)
 # Pick the one that you want
 
-# For Focal Fossa (Ubuntu 20.04)
+# For Focal Fossa (Ubuntu 20.04) (note, when generating minimal bootstrap rootfs
+# --foreign needs to be changed as well)
 cat >/etc/apt/sources.list <<EOF
 deb http://archive.ubuntu.com/ubuntu/ focal main restricted universe multiverse
 deb-src http://archive.ubuntu.com/ubuntu/ focal main restricted universe multiverse
@@ -870,12 +871,38 @@ deb http://ports.ubuntu.com/ubuntu-ports hirsute-security universe
 deb http://ports.ubuntu.com/ubuntu-ports hirsute-security multiverse
 EOF
 
+
+
 # Install essential packages
 # Need to install **net-tools** for network interfaces (e.g. ifconfig)
 apt-get update
+apt-get upgrade
+
+# perl: warning: Setting locale failed.
+# perl: warning: Please check that your locale settings:
+#     LANGUAGE = (unset),
+#     LC_ALL = (unset),
+#     LC_CTYPE = "en_US.UTF-8",
+#     LANG = "en_US.UTF-8"
+#     are supported and installed on your system.
+# Solution:
+update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+
+# Install some packages
 apt-get install --no-install-recommends -y util-linux haveged openssh-server \
 systemd kmod initramfs-tools conntrack ebtables ethtool iproute2 iptables \
-mount socat ifupdown iputils-ping vim dhcpcd5 neofetch sudo chrony net-tools
+mount socat ifupdown iputils-ping vim dhcpcd5 neofetch sudo chrony net-tools \
+make git \
+
+
+# Install packages for RISC-V cross compiler
+apt-get install autoconf automake autotools-dev curl python3 libmpc-dev \
+libmpfr-dev libgmp-dev gawk build-essential bison flex texinfo gperf libtool \
+patchutils bc zlib1g-dev libexpat-dev
+
+# Install packages for compiling Linux kernel
+apt-get install git fakeroot build-essential ncurses-dev xz-utils libssl-dev bc flex libelf-dev bison
+
 
 # Create base config files
 mkdir -p /etc/network
@@ -920,6 +947,47 @@ rm -rf temp-rootfs
 
 
 So now the Ubuntu Hippo rootfs could be found in ```Ubuntu-Hippo-rootfs.tar.gz``` file. What we need to do next is to generate the kernel modules of Linux that we are using.
+
+
+
+However, the above approach does not seem to generate ifconfig binaries either. So here is the third approach by directly downloading the pre-built Ubuntu Focal tarball:
+```
+# Download the tar file
+wget -O rootfs.tar.bz2 https://github.com/carlosedp/riscv-bringup/releases/download/v1.0/UbuntuFocal-riscv64-rootfs.tar.gz
+
+# Extract the file into rootfs directory
+mkdir rootfs
+tar xvf rootfs.tar.bz2 -C rootfs
+
+# Change root so that we can install net-tools package (ifconfig)
+sudo chroot rootfs/ /bin/bash
+
+# Try apt-get update
+apt-get update # W: An error occurred during the signature verification. 
+
+# Solution: this is because of the file permission of /tmp directory
+ls -lad /tmp # this should allow you to see the permission (should be 1777)
+# but it showed 1000. So we need to change it to 1777
+chmod 1777 /tmp
+
+# Then run apt-get update again (it might be too slow, so update /etc/apt/sources.list)
+apt-get update
+apt-get upgrade
+# Install some packages
+apt-get install --no-install-recommends -y util-linux haveged openssh-server \
+systemd kmod initramfs-tools conntrack ebtables ethtool iproute2 iptables \
+mount socat ifupdown iputils-ping vim dhcpcd5 neofetch sudo chrony net-tools \
+make git wget
+
+# Install packages for compiling the kernel
+apt-get install git fakeroot build-essential ncurses-dev xz-utils libssl-dev bc flex libelf-dev bison
+
+# Compile the kernel under /usr/src/ directory
+
+
+
+```
+
 
 ##### Generating Kernel Modules
 generate-kernel-modules.sh:
@@ -999,22 +1067,30 @@ EOF
 sudo qemu-system-riscv64 -m 2G -nographic -machine virt -smp 8 \
     -bios opensbi/build/platform/generic/firmware/fw_payload.elf \
     -drive file=disk.img,format=raw,id=hd0 \
-    -device virtio-blk-device,drive=hd0
+    -device virtio-blk-device,drive=hd0 \
     -netdev tap,id=tapnet,ifname=tap2,script=no,downscript=no \
     -device virtio-net-device,netdev=tapnet
 
 
-qemu-system-riscv64 -nographic -machine virt -smp 4 -m 4G \
-    -bios opensbi/build/platform/generic/firmware/fw_payload.elf \
-    -drive file=disk.img,format=raw,id=hd0 \
-    -device virtio-blk-device,drive=hd0 \
-    -object rng-random,filename=/dev/urandom,id=rng0 \
-    -device virtio-rng-device,rng=rng0
-    -device virtio-net-device,netdev=usernet \
-    -netdev user,id=usernet,hostfwd=tcp::22222-:22
+qemu-system-riscv64 -nographic -machine virt -m 4G \
+ -bios opensbi/build/platform/generic/firmware/fw_payload.elf \
+ -drive file=disk.img,format=raw,id=hd0 \
+ -device virtio-blk-device,drive=hd0 \
+ -device virtio-net-device,netdev=usernet -netdev user,id=usernet,hostfwd=tcp::22222-:22
 
-    -kernel vmlinuz-5.5.0 \
-    -append "console=ttyS0 root=/dev/vda1 rw" \
+
+
+qemu-system-riscv64 -nographic -machine virt -smp 4 -m 4G \
+-bios opensbi/build/platform/generic/firmware/fw_payload.elf \
+-drive file=disk.img,format=raw,id=hd0 \
+-device virtio-blk-device,drive=hd0 \
+-device virtio-net-device,netdev=net0 \
+-netdev user,id=net0,hostfwd=tcp::2222-:22
+
+-object rng-random,filename=/dev/urandom,id=rng0 \
+-device virtio-rng-device,rng=rng0 \
+-device virtio-net-device,netdev=net0,mac=52:54:00:12:35:02 \
+-netdev user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp::2323-:23,tftp=/home/yusen/riscv-sifive/build/tmp-glibc/deploy/images/qemuriscv64
 
 ```
 # Now we can detach the file or device (disk.img) with the loop device (/dev/loop10)
