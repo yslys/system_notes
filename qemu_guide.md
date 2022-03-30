@@ -945,12 +945,10 @@ rm -rf temp-rootfs
 ```
 
 
-
 So now the Ubuntu Hippo rootfs could be found in ```Ubuntu-Hippo-rootfs.tar.gz``` file. What we need to do next is to generate the kernel modules of Linux that we are using.
 
 
-
-However, the above approach does not seem to generate ifconfig binaries either. So here is the third approach by directly downloading the pre-built Ubuntu Focal tarball:
+Here is the third approach by directly downloading the pre-built Ubuntu Focal tarball:
 ```
 # Download the tar file
 wget -O rootfs.tar.bz2 https://github.com/carlosedp/riscv-bringup/releases/download/v1.0/UbuntuFocal-riscv64-rootfs.tar.gz
@@ -1078,24 +1076,12 @@ qemu-system-riscv64 -nographic -machine virt -m 4G \
  -device virtio-blk-device,drive=hd0 \
  -device virtio-net-device,netdev=usernet -netdev user,id=usernet,hostfwd=tcp::22222-:22
 
-
-
-qemu-system-riscv64 -nographic -machine virt -smp 4 -m 4G \
--bios opensbi/build/platform/generic/firmware/fw_payload.elf \
--drive file=disk.img,format=raw,id=hd0 \
--device virtio-blk-device,drive=hd0 \
--device virtio-net-device,netdev=net0 \
--netdev user,id=net0,hostfwd=tcp::2222-:22
-
--object rng-random,filename=/dev/urandom,id=rng0 \
--device virtio-rng-device,rng=rng0 \
--device virtio-net-device,netdev=net0,mac=52:54:00:12:35:02 \
--netdev user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp::2323-:23,tftp=/home/yusen/riscv-sifive/build/tmp-glibc/deploy/images/qemuriscv64
-
 ```
 # Now we can detach the file or device (disk.img) with the loop device (/dev/loop10)
+```
 sudo losetup -d /dev/loop10
 ```
+
 ## Resources:
 https://www.youtube.com/watch?v=Y-FUvi1z1aU
 https://www.youtube.com/watch?v=cIkTh3Xp3dA&t=885s
