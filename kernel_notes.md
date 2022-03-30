@@ -202,3 +202,41 @@ While going through the commit history of eager paging, there is one step that a
     + ```exit_group()```: terminates a full thread group, i.e. a whole multithreaded application
     + ```_exit()```: terminates a single process, regardless of any other process in the thread group of the victim. The main function inside is ```do_exit()```.
     + In ```do_exit()```, we added an if-statement to check if the current process is eagerpaging process, if yes, then calls ```clear_eagerpaging_process()``` function on ```current->comm```.
+
+
+
+## Eager paging porting:
+Eager paging is a bit different from demand paging.
+### Core idea of demand paging:
+User space code has a set of virtual addresses, and when user accesses those set of virtual addresses, if the pages corresponding to those virtual addresses are not in memory, it will cause page faults. Hence, in order to solve that, need to find some free pages, add page table entries to the page table, then the user mode code can continue.
+
+### Core idea of eager paging:
+Instead of triggering page faults, when you allocate virtual addresses (using malloc or mmap()), you also allocate physical pages corresponding to the virtual addresses. Since the target is to minimize the address translation overhead, eager paging allocates the physical pages contiguously.
+
+The buddy allocator is used by Linux to perform memory allocations. The buddy allocator maintains a list of free physical pages. Such info could be retrieved by looking at ```/proc/buddyinfo```:
+```
+$ cat /proc/buddyinfo
+
+Node 0, zone      DMA      1      0      0      1      2      1      1      0      0      1      3
+Node 0, zone    DMA32      0      1      3      2      5      5      5      4      3      1    963
+Node 0, zone   Normal    297    227    156     86     55     20      9      9      6      2   1318
+```
+Starting from the fourth column (the numbers), it shows the number of pages available for various sizes (4KB, 8KB, 16KB, 32KB, ...). Hence, for zone Normal, in this case, it contains 297 4KB pages (since page size is 4KB), 227 8KB blocks, 156 16KB blocks, etc.. There are a total of **11** columns of numbers (```MAX_ORDER``` in ```include/linux/mmzone.h```), so the last column represents the number of 4MB blocks, which is what is by default in the Linux kernel. We enlarge it to be 20, so that the largest size of the blocks buddy allocator can keep track of is 2GB.
+
+```populate```: means allocate physical memory and create the page tables.
+
+
+### Enable greater buddy allocator MAX_ORDER --> required for eager paging's contiguous block allocations
++ linux-5.16.15/arch/riscv/include/asm/sparsemem.h
+    + ```SECTION_SIZE_BITS```: the number of bits reserved for Linux itself
+    + [resource](https://lore.kernel.org/lkml/1465821119-3384-1-git-send-email-jszhang@marvell.com/)
++ linux-5.16.15/include/linux/mmzone.h
+
+
+### Adding a syscall to register a process as eagerpaging process.
+We need to add a syscall so that we could register a specific process to use eager paging instead of normal paging (demand paging)
+
+
+[resource](https://www.kernel.org/doc/html/v4.10/process/adding-syscalls.html#:~:text=several%20other%20architectures%20share%20a%20generic%20syscall%20table.%20Add%20your%20new%20system%20call%20to%20the%20generic%20list%20by%20adding%20an%20entry%20to%20the%20list%20in%20include/uapi/asm%2Dgeneric/unistd.h%3A)
+
+Eager paging routines in place only for ANONUMOUS mappings. mm_eager(……) --> allocates large contiguous buddy blocks and pre-populates mappings (similar to mm_populate but with contiguity in place)
