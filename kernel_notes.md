@@ -150,7 +150,106 @@ When the cr3 control register of a CPU is modified, the hardware automatically i
 
 ## mm
 
+### Linux Memory Models:
+In Linux, each page frame is represented by ```struct page```. Given an virtual address, CPU needs to ask TLB if it contains the PTE of the mapping: ```(VPN, PFN)```. So at the end, we know what PFN is. However, although there is a one-to-one mapping between PFN and ```struct page```, PFN 0 does not necessarily map to page 0. There is another level of mapping that stores the mapping: ```(PFN, struct page)```.
 
+Linux provides us some macros to retrieve either PFN or page: ```page_to_pfn``` and ```pfn_to_page```. So now the question is - how are they mapped?
+
+Answer: **It depends on the memory model we use**.
+
+[Source](http://www.wowotech.net/memory_management/memory_model.html)
+
+#### UMA and NUMA:
++ Similarities:
+    + Both are shared memory models.
+    + Both targeting multi-processors.
++ What is UMA?
+    + UMA (Uniform Memory Access).
+    + Only one memory controller.
+    + Multiple processors share one RAM. Time to access memory for each processor is the same.
+
++ What is NUMA?
+    + NUMA (Non-Uniform Memory Access).
+    + Multiple memory controllers.
+    + Time to access memory depends on how far from the memory to the processor is, i.e. local memory access is faster than remote memory access.
+    + Typically we use the notion ```node``` to denote one processor and one local memory pair. Hence, remote memory must reside in another node.
+
+#### FLat Memory Model
+From any processor's point of view, when it tries to access physical memory, the physical address space is contiguous without holes.
+
+In this case, kernel maintains a page array (```struct page *```) called ```mem_map```, with length being the number of pages in memory. Each ```struct page``` maps to a page frame (PFN), with a constant offset (offset could be 0). There is only one node, i.e. only one ```struct pglist_data```. No need a page table.
+
+To convert PFN to ```struct page``` is simple in this case.
+
+#### Discontiguous Memory Model (Multi-nodes + Flat/node)
+From any processor's point of view, when it tries to access physical memory, the physical memory contains some holes, and thus discontiguous.
+
+Discontiguous memory model is designed for NUMA architectures, and it is an extension for FLat memory model. It has multiple nodes, i.e. multiple ```struct pglist_data```. Each ```struct pglist_data``` points to an array of contiguous ```struct page```s. The mapping between each page structure (```struct page```) and the physical page frame (PFN) is the same as FLat memory model, i.e. constant offset. We can use the macro ```NODE_DATA()``` to get the corresponding pointer to a ```struct pglist_data```:
+```
+#include <linux/mmzone.h>
+// @nid: node id.
+static inline struct pglist_data *NODE_DATA(int nid) {
+    return &contig_page_data;
+}
+```
+Inside the ```struct pglist_data *``` we obtained, it has a field: ```struct page *node_mem_map```, which is the starting address of the array of contiguous pages within this node, similar to ```mem_map``` in Flat memory model.
+
+To convert PFN to ```struct page```, we first need to obtain the node id (based on PFN), then pass the node id to ```NODE_DATA()``` to get ```struct pglist_data *```, then get the starting address of an array of contiguous ```struct page```s by accessing ```struct page *node_mem_map```. Finally, we could obtain the pointer to the corresponding ```struct page``` by using offset.
+
+Conclusion: Discontiguous memory model - several (number of nodes) arrays of contiguous pages, each array of pages is not contiguous.
+
+#### Sparse Memory Model (for memory hot plug/remove)
+From Flat memory model to Discontiguous memory model, the number of chunks of contiguous pages changes from 1 (flat) to the number of nodes (discontiguous), i.e. from 1 ```mem_map``` array to multiple ```struct page *node_mem_map``` arrays. It seems to work well (and indeed works well for systems without hot plugging). But Discontiguous memory model needs to change so that it supports memory hot plugging.
+
++ What is hot plugging?
+    + It is the addition of a component to a "running computer system" without significant interruption to the operation of the system.
+    + Hot plugging a device does not require a restart of the system.
+    + This is especially useful for systems that must always stay running, e.g. a server.
++ Hot-pluggable devices:
+    + HDD: hard disk drives
+    + SSD: solid-state drives
+    + USB flash drive: (Universal Serial Bus) flash drive
+    + Mice, keyboards
++ Memory hot(un)plug ([src](https://www.kernel.org/doc/html/latest/admin-guide/mm/memory-hotplug.html))
+    + allows for increasing and decreasing the size of physical memory available to a machine at runtime. In the simplest case, it consists of physically plugging or unplugging a DIMM at runtime, coordinated with the operating system.
+
+For a single node, say it has memory of size 32GB, and is currently running to provide some support for our personal purposes. What if we want to increase/decrease the size of memory while not impacting the currently running applications? This will make the previously contiguous ```node_mem_map``` within a single node not contiguous anymore, since for that single node, the memory might be hot-plugged or hot-unplugged while that node is running.
+
+In other words, say there are two memory device connecting to a single node. If using discontiguous memory model, Linux will regard those two memory devices as a single one, i.e. only 1 ```struct page *node_mem_map``` (array of logically contiguous but physically separated into two pieces ```struct page```s). If the memory is hot-(un)pluggable, then if we remove one piece of memory, it is hard for Linux to figure out which part of ```node_mem_map``` should be cleared.
+
+Here comes Sparse memory model, which further divides the memory space of one node into **sections**, so that each section is hot-(un)pluggable; meanwhile, the array of ```struct page```s are contiguous within each section.
+
+The data structure for one section is ```struct mem_section```, not ```struct pglist_data``` (for node) anymore. I tried to find any relation between ```pglist_data``` and ```mem_section```, but did not find it; hence, I assume there is no relation between ```pglist_data``` and ```mem_section```.
+
+To convert PFN to ```struct page```: [source code](https://elixir.bootlin.com/linux/v5.17.1/source/include/asm-generic/memory_model.h#L39)
+```
+#define __pfn_to_page(pfn)                          \
+({	unsigned long __pfn = (pfn);                    \
+    struct mem_section *__sec = __pfn_to_section(__pfn);	\
+    __section_mem_map_addr(__sec) + __pfn;          \
+})
+```
+Before we start discussing the details, we need to know how PFN is structured:
+```
+Recall that Virtual address consists of:
+VA = |VPN|offset_within_page|
+VPN --> TLB / PageTable Walk --> PFN
+
+How does kernel use PFN?
+PFN consists of two parts: section index and page index.
+PFN = |section_index|page_index|
+section index: which section this PFN belongs to
+page index: the index into the array of struct pages corresponding to the page 
+            we want
+
+page_index: PFN_SECTION_SHIFT bits (maximum of 2^PFN_SECTION_SHIFT pages)
+```
++ There is a static array of ```mem_section *``` defined in [```mm/sparse.c```](https://elixir.bootlin.com/linux/v5.17.1/source/mm/sparse.c#L27), i.e. ```struct mem_section **mem_section;```. 
++ Each ```struct mem_section``` has a field ```unsigned long section_mem_map```, which is a pointer to an array of ```struct page```s.
++ Right shift PFN ```PFN_SECTION_SHIFT``` bits to obtain section number. (Note: ```#define PAGES_PER_SECTION       (1UL << PFN_SECTION_SHIFT)```)
++ Use section number to index the static array (```mem_section **```), to find the corresponding ```struct mem_section *```.
++ Inside ```struct mem_section *```, retrieve ```section_mem_map```.
++ Use page index to index the ```section_mem_map``` array to get the page pointer we want.
 
 ## Process ```struct task_struct```
 An **Execution Context**, which can be independently scheduled, has its own process descriptor - ```struct task_struct```, i.e. process descriptor pointers (in the case of address). This structure is defined in ```include/linux/sched.h```.
@@ -205,6 +304,9 @@ While going through the commit history of eager paging, there is one step that a
 
 
 
+
+
+
 ## Eager paging porting:
 Eager paging is a bit different from demand paging.
 ### Core idea of demand paging:
@@ -228,9 +330,13 @@ Starting from the fourth column (the numbers), it shows the number of pages avai
 
 ### Enable greater buddy allocator MAX_ORDER --> required for eager paging's contiguous block allocations
 + linux-5.16.15/arch/riscv/include/asm/sparsemem.h
-    + ```SECTION_SIZE_BITS```: the number of bits reserved for Linux itself
+    + ```SECTION_SIZE_BITS```: the number of bits of the size of each section of memory (Sparse memory model).
     + [resource](https://lore.kernel.org/lkml/1465821119-3384-1-git-send-email-jszhang@marvell.com/)
+    + [resource](https://docs.kernel.org/vm/memory-model.html)
+    https://www.tsz.wiki/linux/memory/common/modle/modle.html#_0-%E6%A6%82%E8%BF%B0
+    https://lwn.net/Articles/789304/
 + linux-5.16.15/include/linux/mmzone.h
+    + ```#define MAX_ORDER 20```: previously 11. It defines the maximum order of contiguous physical pages that could be requested by kernel buddy memory allocator. 11 means 4MB blocks, and 20 means 2GB blocks.
 
 
 ### Adding a syscall to register a process as eagerpaging process.
