@@ -329,20 +329,43 @@ Starting from the fourth column (the numbers), it shows the number of pages avai
 
 
 ### Enable greater buddy allocator MAX_ORDER --> required for eager paging's contiguous block allocations
++ linux-5.16.15/include/linux/mmzone.h
+    + ```#define MAX_ORDER 20```: previously 11. It defines the maximum order of contiguous physical pages that could be requested by kernel buddy memory allocator. 11 means 4MB blocks, and 20 means 2GB blocks.
 + linux-5.16.15/arch/riscv/include/asm/sparsemem.h
     + ```SECTION_SIZE_BITS```: the number of bits of the size of each section of memory (Sparse memory model).
+    + Recall that we modified ```MAX_ORDER``` to be 20 so that it supports 2GB contiguous blocks. We also need to modify ```SECTION_SIZE_BITS``` to be 31 so that each section can have max size of 2GB. That is why 
     + [resource](https://lore.kernel.org/lkml/1465821119-3384-1-git-send-email-jszhang@marvell.com/)
     + [resource](https://docs.kernel.org/vm/memory-model.html)
     https://www.tsz.wiki/linux/memory/common/modle/modle.html#_0-%E6%A6%82%E8%BF%B0
     https://lwn.net/Articles/789304/
-+ linux-5.16.15/include/linux/mmzone.h
-    + ```#define MAX_ORDER 20```: previously 11. It defines the maximum order of contiguous physical pages that could be requested by kernel buddy memory allocator. 11 means 4MB blocks, and 20 means 2GB blocks.
+
 
 
 ### Adding a syscall to register a process as eagerpaging process.
-We need to add a syscall so that we could register a specific process to use eager paging instead of normal paging (demand paging)
+We need to add a syscall so that we could register a specific process to use eager paging instead of normal paging (demand paging). [resource](https://www.kernel.org/doc/html/v4.10/process/adding-syscalls.html#:~:text=several%20other%20architectures%20share%20a%20generic%20syscall%20table.%20Add%20your%20new%20system%20call%20to%20the%20generic%20list%20by%20adding%20an%20entry%20to%20the%20list%20in%20include/uapi/asm%2Dgeneric/unistd.h%3A)
++ linux-5.16.15/include/linux/eagerpaging.h:
+    + The file that contains an array of eagerpaging process names, and some helper function headers
++ linux-5.16.15/include/linux/syscalls.h:
+    + For adding the syscall
++ linux-5.16.15/include/uapi/asm-generic/unistd.h:
+    + For defining the new syscall number
++ linux-5.16.15/mm/Makefile:
+    + Add to ```mmu-$(CONFIG_MMU)``` to compile our new syscall
++ linux-5.16.15/mm/register_eagerpaging.c:
+    + The actual syscall implementation, and helper functions implementation
++ linux-5.16.15/include/linux/mm_types.h:
+    + Added boolean variable to ```struct mm_struct``` indicating a process is eagerpaging process or not.
 
+The way that the syscall of registering a process as eagerpaging works is that, the process is created on ```fork()``` then ```execve()```; but before the execution of the process, the syscall is called first. The syscall registered the process names into a table (write the current process name (comm) to an array of process names), then later when a process is executed, it needs to check if the process's name is in that table. If yes, then the ```bool eagerpaging``` within ```struct mm_struct``` corresponding to the process is set to be true. In that case, the process is marked as eagerpaging process. On termination of the process, it needs to check if that process is eagerpaging process. If yes, then need to set ```bool eagerpaging``` to be false. That is why we also need to modify the following two files: 
 
-[resource](https://www.kernel.org/doc/html/v4.10/process/adding-syscalls.html#:~:text=several%20other%20architectures%20share%20a%20generic%20syscall%20table.%20Add%20your%20new%20system%20call%20to%20the%20generic%20list%20by%20adding%20an%20entry%20to%20the%20list%20in%20include/uapi/asm%2Dgeneric/unistd.h%3A)
++ linux-5.16.15/fs/exec.c:
+    + Added "setting eagerpaging boolean variable to be true" if a process is eagerpaging process.
++ linux-5.16.15/kernel/exit.c:
+    + Added clearing eagerpaging process when process terminated.
+
+Finally, we need to add the user mode testing code to test if our syscall works:
++ linux-5.16.15/scripts/run/eagerpaging.c:
+    + User mode testing code for registering processes as eagerpaging process
+
 
 Eager paging routines in place only for ANONUMOUS mappings. mm_eager(……) --> allocates large contiguous buddy blocks and pre-populates mappings (similar to mm_populate but with contiguity in place)
