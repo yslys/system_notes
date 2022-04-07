@@ -86,6 +86,7 @@ Define a work to be the amount of computation performed by the device at a time.
 + Integrate DVM to reduce address translation overhead.
 + Integrate database workload to use our interface.
     + Also need to define "how the workload uses our device" or "how device performs computation".
++ Implement a DSA device, or use some existing devices that supports IOMMU.
 + Measure the baseline, compared it to the ideal case where accelerator is fully utilized to see the performance difference.
 + (Maybe) implement ENQCMD command.
 + Think about how to make our design more exciting.
