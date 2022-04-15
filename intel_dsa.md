@@ -12,6 +12,7 @@
     + [Descriptors (work/batch descriptors)](#descriptors)
     + [Work Queues](#work-queues)
     + [Shared Work Queue](#shared-work-queue-swq)
++ [ENQCMD and MOVDIR64B](#enqcmd-and-movdir64b)
 
 ## Keywords
 + SoC: System on a Chip
@@ -250,3 +251,85 @@ Although dedicated mode doesn’t support the sharing of a single DWQ by multipl
 be configured to have multiple DWQs and each of the DWQs can be independently assigned to clients.
 DWQs can be configured to have the same or different QoS levels.
 
+
+
+## ENQCMD and MOVDIR64B
+ENQCMD: An Intel® 64 CPU instruction to enqueue a command to a shared work queue using Deferrable Memory Write (DMWr).
+
+ENQCMDS: An Intel® 64 CPU instruction to enqueue a command with Supervisor permissions (from privileged software) to a shared work queue using Deferrable Memory Write (DMWr).
+
+On Intel CPUs, DMWr is generated using the ENQCMD or ENQCMDS instructions. The ENQCMD and ENQCMDS instructions return the status of the command submission in EFLAGS.ZF flag; 0 indicates Success, and 1 indicates Retry.
+
+Shared Work Queues and PASID: Clients are identified by the device using a 20-bit ID called process address space ID (PASID). The PASID capability must be enabled to use SWQs. The PASID is used by the device to look up addresses in the Address Translation Cache and to send address translation or page requests to the IOMMU. In Shared mode, the PASID to be used with each descriptor is contained in the PASID field of every descriptor. 
+
+**ENQCMD instruction copies the PASID of the current thread from the IA32_PASID MSR into the descriptor** while **ENQCMDS allows supervisor mode software to copy the PASID into the descriptor**. 
+
+Dedicated Work Queues and PASID: With dedicated WQs, the use of PASID is optional. If the PCI Express PASID capability is not enabled, PASID is not used. If the PASID capability is enabled, the WQ PASID Enable field of the WQ Configuration register controls whether PASID is used for each DWQ. 
+
+MOVDIR64B: On Intel CPUs, work submission to a DWQ is performed using the MOVDIR64B instruction, which generates a non-torn 64-byte write.
+
+Since the ```MOVDIR64B``` instruction does not fill in the PASID as the ENQCMD or ENQCMDS instructions do, the PASID field in the descriptor is ignored. When PASID is enabled for a DWQ, the device uses the WQ PASID field of the WQ Configuration register to do address translation. The WQ PASID field must be set by the driver before enabling a work queue in dedicated mode.
+
+MOVDIR64B: only supports Dedicated Work Queue.
+ENQCMD/ENQCMDS: supports Shared Work Queue.
+
+
++ https://www.phoronix.com/scan.php?page=news_item&px=Intel-ENQCMD-In-TIP
++ https://www.phoronix.com/scan.php?page=news_item&px=Linux-Make-Use-Of-ENQCMD
++ https://stackoverflow.com/questions/66236313/micro-benchmark-to-study-the-latency-of-movdir64b-instruction
++ https://lore.kernel.org/lkml/1529118375-90191-3-git-send-email-fenghua.yu@intel.com/
++ http://patchwork.ozlabs.org/project/qemu-devel/patch/1531213054-63327-4-git-send-email-jingqi.liu@intel.com/
++ http://archive.lwn.net:8080/linux-kernel/157617505636.42350.1170110675242558018.stgit@djiang5-desk3.ch.intel.com/
+
+
+## Descriptor Formats:
+
+## Completions:
+Software specifies work for the device using descriptors. 
+
+Descriptors specify 
++ the type of operation for the device to perform
++ addresses of data and status buffers, 
++ immediate operands, 
++ completion attributes, etc.
+    + The completion attributes specify the address to write the completion record, and optionally, the information needed to generate a completion interrupt.
+
+8.1.4 Completion Record Address:
++ Offset 8; Size 8 bytes (64 bits)
++ This field specifies the **address of the completion record**. 
+    + The completion record is 32 bytes and must be aligned on a 32-byte boundary. 
+    + If the Completion Record Address Valid flag is 0, this field is reserved.
+
++ If the Request Completion Record flag is 1, a completion record is written to this address at the completion of the operation. 
++ If Request Completion Record is 0, a completion record is written to this address only if
+there is a page fault or error.
++ For any operation that **yields a result**, such as Compare, the Completion Record Address Valid and Request Completion Record flags must both be 1 and the Completion Record Address must be valid.
++ For any operation that uses virtual addresses, the Completion Record Address should be valid, whether or not the Request Completion Record flag is set, so that a completion record may be written in case there is a page fault or error.
+
++ For best results, this field should be valid in all descriptors, because it allows the device to report errors to the software that submitted the descriptor. Otherwise, if an unexpected error occurs, the error is reported to the SWERROR register, and the software that submitted the request may not be notified of the error.
+
+
+8.2 Completion Record
+
+
++ [enqcmds](https://github.com/torvalds/linux/blob/master/arch/x86/include/asm/special_insns.h)
++ [driver pci_probe and iomap BAR0](https://github.com/intel/idxd-driver/blob/24d3340fe4acca5360d6f32aa95b4b9473ab4fd4/drivers/dma/idxd/init.c)
++ [cdev driver io_remap_pfn_range(passes in size to be PAGE_SIZE, 4KB), so the mmap'ed area is 4KB on a page boundary](https://github.com/intel/idxd-driver/blob/24d3340fe4acca5360d6f32aa95b4b9473ab4fd4/drivers/dma/idxd/cdev.c#L190)
+    + See section 9.1.1.2 BAR2(portals):
+        + BAR2 is a 64-bit BAR that contains the physical base address of the portals that are used to submit descriptors to the device. Each portal is 64 bytes in size and is located on a separate 4 KB page. This allows the portals to be independently mapped into different address spaces using CPU page tables. There are 4 portals per WQ, as described in section 3.3. So, for example, if the device supports 8 WQs, the size of BAR2 would be 8 WQs × 4 portals/WQ × 4 KB/portal = 128 KB. If the size is not a power of two, the total size of BAR2 is rounded up to the next power of two.
+        + For a non-posted write, a Retry response is returned. Any read operation to the BAR2 address space returns either 0x00 or 0xFF for all bytes.
+    + See section 3.3 on page 21:
+        + Descriptors are submitted to work queues via special registers called portals. Each portal is in a separate 4 KB page in device MMIO space. There are four portals per WQ.
+
++ [User testing code repo](https://github.com/intel/idxd-config/tree/stable/test):
+    + User mode testing code is: [dsa_test.c](https://github.com/intel/idxd-config/blob/stable/test/dsa_test.c)
+    + Example: [enqueue a batch descriptor: ```test_batch()```](https://github.com/intel/idxd-config/blob/stable/test/dsa_test.c#L33): 
+        + ```range``` is set to ```struct dsa_context```'s ```threshold``` or ```wq_size``` depending on whether it is DWQ or SWQ ([code](https://github.com/intel/idxd-config/blob/stable/test/dsa_test.c#L51)).
+        + ```itr``` is the number of descriptors per batch([code](https://github.com/intel/idxd-config/blob/stable/test/dsa_test.c#L57)).
+        + For each batch:
+            + ```alloc_batch_task()``` to obtain the list of ```btsk_node```s in a batch.
+            + For each ```btsk_node``` in the batch, [```init_batch_task()```](https://github.com/intel/idxd-config/blob/stable/test/dsa.c#L850), then call [```dsa_prep_*()```](https://github.com/intel/idxd-config/blob/stable/test/prep.c) where * is determined by the batch opcode, which determines what operation is associated with this ```btsk_node``` (work descriptor).
+            + For each ```btsk_node``` in the batch, call [```dsa_prep_batch()```](https://github.com/intel/idxd-config/blob/stable/test/prep.c#L769) to set the fields in the batch descriptor, and the completion address, descriptor count, etc., then calls [```dump_sub_desc()```](https://github.com/intel/idxd-config/blob/stable/test/dsa.h#L206) to dump all sub descriptors for a batch task.
+            + For each ```btsk_node``` in the batch, call [```dsa_desc_submit()```](https://github.com/intel/idxd-config/blob/stable/test/prep.c#L23) to copy 64 bytes of decriptor to accelerator using either ```movdir64b()``` if DWQ or ```dsa_enqcmd()``` if SWQ.
+            + Now, we have submitted all batch descriptors.
+            + For each ```btsk_node``` in the batch call [```dsa_wait_batch()```](https://github.com/intel/idxd-config/blob/stable/test/dsa.c#L1130) to wait for whether successfully submitted or failure due to timeout. 
