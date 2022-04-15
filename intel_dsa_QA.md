@@ -144,3 +144,17 @@ scatter-gather for the planned release on Sapphire Rapids platform.**
 
 ## My thoughts on design:
 Eagerpaging + Identity mapping + eager mmap()
+
+
+## Questions
+separate virtual address spaces cause 
+data to be replicated
+
+
+fill_page_table_manually()
+
+then we set page_increm with the number of new order
+
+
+
+Read MEG to see if data is required to read to device or not.
