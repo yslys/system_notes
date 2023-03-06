@@ -37,6 +37,19 @@ A PCI bus does not support split transactions.
 
 
 
+### PCI address space
+https://www.youtube.com/watch?v=ihgMcP2353I
+
+1. PCI configuration space
+2. PCI memory-mapped space
+3. PCI I/O-mapped space
+
+
+https://www.youtube.com/playlist?list=PLBTQvUDSl81dTG_5Uk2mycxZihfeAYTRm
+
+
+
+
 
 
 + What was gem5 and what is gem5 after this paper?
