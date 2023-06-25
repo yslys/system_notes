@@ -9,7 +9,7 @@ Yes, mostly math courses
 + [Numerical Analysis (UFL)](https://www.youtube.com/playlist?list=PLldiDnQu2phsUDSmP4R_b7jzY627qnnXe)
     + [Book](https://newdoc.nccu.edu.tw/teasyllabus/111648701013/Numerical_Analysis.pdf)
 + [Intro to ML (MIT)](https://openlearninglibrary.mit.edu/courses/course-v1:MITx+6.036+1T2019/course/)
-    + No video, but notes
+    + No video, but notes (definitely worth reading)
 
 ### Systems
 + [Intro to Database (CMU)](https://www.youtube.com/playlist?list=PLSE8ODhjZXjaKScG3l0nuOiDTTqpfnWFf)
