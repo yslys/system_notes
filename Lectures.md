@@ -1,6 +1,8 @@
 ### Math & Machine Learning Fundamentals
 Yes, mostly math courses
 + [Linear Algebra (MIT)](https://ocw.mit.edu/courses/18-06-linear-algebra-spring-2010/video_galleries/video-lectures/)
++ [Intro to Probability (MIT)](https://www.youtube.com/playlist?list=PLUl4u3cNGP60hI9ATjSFgLZpbNJ7myAg6)
+    + MIT OCW: [link](https://ocw.mit.edu/courses/res-6-012-introduction-to-probability-spring-2018/)
 + [Linear Optimization (UW-Madison)](https://www.youtube.com/playlist?list=PLeO_PhASIA0Ot69TqANAnNxoykHGOQp2Y)
 + [Integer Optimization (UW-Madison)](https://www.youtube.com/playlist?list=PLeO_PhASIA0NtvLCAZXLC8HACOgVD9Y32)
 + [Differential Equations (UFL)](https://www.youtube.com/playlist?list=PLldiDnQu2phuDUwFDC5fSiKM8MiWgk6zu)
