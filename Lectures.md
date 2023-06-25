@@ -16,6 +16,7 @@ Yes, mostly math courses
 + [Advanced Database (CMU)](https://www.youtube.com/playlist?list=PLSE8ODhjZXjYzlLMbX3cR0sxWnRM7CLFn)
 + [Computer Networks](https://media.pearsoncmg.com/ph/streaming/esm/tanenbaum5e_videonotes/tanenbaum_videoNotes.html)
 + [Distributed Systems (MIT)](https://www.youtube.com/playlist?list=PLrw6a1wE39_tb2fErI4-WkMbsvGQk9_UB)
+    + Notes: [link](https://ocw.mit.edu/courses/6-824-distributed-computer-systems-engineering-spring-2006/pages/lecture-notes/)
 + [Intro to Big Data Systems (UW-Madison)](https://tyler.caraza-harter.com/cs544/s23/schedule.html)
 + [Intro to Computer Architecture (UW-Madison)](https://ece552.ece.wisc.edu/video.shtml)
 + [Advanced Computer Architecture (UW-Madison)](https://ece752.ece.wisc.edu/)
