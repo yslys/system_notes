@@ -1,7 +1,11 @@
 ### Math & Machine Learning Fundamentals
+Yes, mostly math courses
 + [Linear Algebra (MIT)](https://ocw.mit.edu/courses/18-06-linear-algebra-spring-2010/video_galleries/video-lectures/)
 + [Linear Optimization (UW-Madison)](https://www.youtube.com/playlist?list=PLeO_PhASIA0Ot69TqANAnNxoykHGOQp2Y)
 + [Integer Optimization (UW-Madison)](https://www.youtube.com/playlist?list=PLeO_PhASIA0NtvLCAZXLC8HACOgVD9Y32)
++ [Differential Equations (UFL)](https://www.youtube.com/playlist?list=PLldiDnQu2phuDUwFDC5fSiKM8MiWgk6zu)
++ [Numerical Analysis (UFL)](https://www.youtube.com/playlist?list=PLldiDnQu2phsUDSmP4R_b7jzY627qnnXe)
+    + [Book](https://newdoc.nccu.edu.tw/teasyllabus/111648701013/Numerical_Analysis.pdf)
 + [Intro to ML (MIT)](https://openlearninglibrary.mit.edu/courses/course-v1:MITx+6.036+1T2019/course/)
     + No video, but notes
 
