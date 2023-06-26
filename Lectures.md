@@ -11,6 +11,7 @@ Yes, mostly math courses
     + [Book](https://newdoc.nccu.edu.tw/teasyllabus/111648701013/Numerical_Analysis.pdf)
 + [Intro to ML (MIT)](https://openlearninglibrary.mit.edu/courses/course-v1:MITx+6.036+1T2019/course/)
     + No video, but notes (definitely worth reading)
++ [Probability and Info Theory in ML(UW Madison)](https://mediaspace.wisc.edu/channel/CS_ECE%2B561%2B-%2BProbability%2Band%2BInfo%2BTheory%2Bin%2BMachine%2BLearning/191748913)
 
 ### Systems
 + [Intro to Database (CMU)](https://www.youtube.com/playlist?list=PLSE8ODhjZXjaKScG3l0nuOiDTTqpfnWFf)
