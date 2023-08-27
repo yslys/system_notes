@@ -8,9 +8,13 @@
 + [Differential Equations (UFL)](https://www.youtube.com/playlist?list=PLldiDnQu2phuDUwFDC5fSiKM8MiWgk6zu)
 + [Numerical Analysis (UFL)](https://www.youtube.com/playlist?list=PLldiDnQu2phsUDSmP4R_b7jzY627qnnXe)
     + [Book](https://newdoc.nccu.edu.tw/teasyllabus/111648701013/Numerical_Analysis.pdf)
+
 ### Machine learning fundamentals
 + [Intro to ML (Stanford)](https://ee104.stanford.edu/)
     + [Videos](https://www.youtube.com/playlist?list=PLoROMvodv4rN_Uy7_wmS051_q1d6akXmK)
++ [ML by Andrew Ng(Stanford CS229 Fall 2018)](http://cs229.stanford.edu/syllabus-autumn2018.html)
+    + [videos](https://www.youtube.com/playlist?list=PLoROMvodv4rMiGQp3WXShtMGgzqpfVfbU)
+    + [Linear Algebra notes](http://cs229.stanford.edu/section/cs229-linalg.pdf)
 + [Intro to ML (MIT)](https://openlearninglibrary.mit.edu/courses/course-v1:MITx+6.036+1T2019/course/)
     + No video, but notes (definitely worth reading)
 + [Probability and Info Theory in ML(UW Madison)](https://mediaspace.wisc.edu/channel/CS_ECE%2B561%2B-%2BProbability%2Band%2BInfo%2BTheory%2Bin%2BMachine%2BLearning/191748913)
