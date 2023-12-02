@@ -17,3 +17,5 @@ sudo make linux
 ./configure --prefix=/opt/riscv --with-arch=rv64gc_zicsr
 sudo make linux
 ```
+
+This link is useful: https://groups.google.com/a/groups.riscv.org/g/sw-dev/c/aE1ZeHHCYf4
