@@ -5,10 +5,15 @@ So I installed RISC-V cross compiler following this [link](https://github.com/ri
 csrs 0x100,s4', extension `zicsr' required
 ```
 
+### First try (did not work)
 I found the corresponding issue [here](https://github.com/riscv-collab/riscv-gnu-toolchain/issues/1280), and the solution I've tried so far is to pass this flag to the configure script: `--with-arch=rv64gc`
 ```
 ./configure --prefix=/opt/riscv --with-arch=rv64gc
 sudo make linux
 ```
 
-TODO: still building RISCV cross compiler rn, not sure if this works, have to go to sleep.
+### Second try
+```
+./configure --prefix=/opt/riscv --with-arch=rv64gc_zicsr
+sudo make linux
+```
