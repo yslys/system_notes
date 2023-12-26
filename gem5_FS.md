@@ -37,3 +37,7 @@ KBUILD_CFLAGS += -march=$(subst fd,,$(riscv-march-y))_zicsr_zifencei
 KBUILD_AFLAGS += -march=$(riscv-march-y)_zicsr_zifencei
 ```
 Then we are good to go.
+
+
+
+Actually, the simplest way is to switch to an older version of riscv cross compiler. Follow the instructions here: https://gem5.googlesource.com/public/gem5-resources/+/HEAD/src/riscv-fs/README.md
