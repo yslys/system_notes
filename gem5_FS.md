@@ -12,10 +12,28 @@ I found the corresponding issue [here](https://github.com/riscv-collab/riscv-gnu
 sudo make linux
 ```
 
-### Second try
+### Second try (did not work)
 ```
 ./configure --prefix=/opt/riscv --with-arch=rv64gc_zicsr
 sudo make linux
 ```
 
 This link is useful: https://groups.google.com/a/groups.riscv.org/g/sw-dev/c/aE1ZeHHCYf4
+
+### Third try (working solution)
+First of all, we should build the riscv cross compiler following the instructions shown on the Github repo, i.e.
+```
+./configure --prefix=/opt/riscv
+make linux
+```
+Then, when we try to build the Linux kernel, we should modify the Makefile. How to modify is based on [this issue](https://github.com/OpenXiangShan/XiangShan/issues/2545).
+
+In `linux.../arch/riscv/Makefile`:
+```
+# Search for "KBUILD_AFLAGS += -march=", then append "_zicsr_zifencei"
+# Search for "KBUILD_CFLAGS += -march=", then append "_zicsr_zifencei"
+# In my case, I modified it to be the following:
+KBUILD_CFLAGS += -march=$(subst fd,,$(riscv-march-y))_zicsr_zifencei
+KBUILD_AFLAGS += -march=$(riscv-march-y)_zicsr_zifencei
+```
+Then we are good to go.
