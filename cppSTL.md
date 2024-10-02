@@ -21,5 +21,6 @@
       + `std::unique(vector)`: this will remove all the extra consecutive numbers in the vector.
         + e.g.  `{ 1, 1, 3, 3, 3, 10, 1, 3, 3, 7, 7, 8 }` -> `{ 1, 3, 10, 1, 3, 7, 8 }`
         + This is why we need to sort the vector first, then call `unique()` function
-      + Return value of `std::unique(vector)`: an iterator pointing to the end of the de-duplicated array, and we treat that iterator as the begin() of the index that we want to erase.
-        
+      + Return value of `std::unique(vector)`: an iterator pointing to the end of the de-duplicated array, and we treat that iterator as the begin() of the index that we want to erase.      
++ How to obtain a substring of a `string s`?
+  + Use `s.substr(start_idx, length)`.
