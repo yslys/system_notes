@@ -1,5 +1,6 @@
 ## CPP STL cheat sheet
-
++ How to convert an int to a string?
+  + `x.to_string()`
 + How to check if a `key` exists in `unordered_map<> m`?
   + `if (unordered_map.count(key) == 0)' then key doesn't exist
   + `unordered_map.count(key)` can return at most 1 due to it is a dictionary.
