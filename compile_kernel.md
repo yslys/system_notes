@@ -17,7 +17,9 @@ scripts/config --enable CONFIG_DAMON \
                --enable CONFIG_DAMON_SYSFS \
                --enable CONFIG_DAMON_RECLAIM \
                --enable CONFIG_DAMON_LRU_SORT \
-               --enable CONFIG_TRANSPARENT_HUGEPAGE
+               --enable CONFIG_TRANSPARENT_HUGEPAGE \
+               --enable CONFIG_MEMORY_HOTPLUG \
+               --enable CONFIG_MHP_DEFAULT_ONLINE_TYPE_ONLINE_MOVABLE
 
 # Below is required to resolve dependencies
 make olddefconfig
